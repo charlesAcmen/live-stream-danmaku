@@ -1,5 +1,7 @@
 package ws
 
+import "log"
+
 // Manager is responsible for managing all clients
 type Manager struct {
 	// Register channel: when a new client joins, send the client pointer to the channel
@@ -36,6 +38,7 @@ func (m *Manager) Start() {
 				delete(m.Clients, conn)
 				// close send channel to prevent GoRoutine leak
 				close(conn.Send)
+				log.Println("[MANAGER]Client disconnected", conn.ID)
 			}
 
 		case message := <-m.Broadcast:
