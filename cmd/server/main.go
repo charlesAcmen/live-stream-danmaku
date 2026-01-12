@@ -28,37 +28,43 @@ func main() {
 	// 2. Start the Manager (start a goroutine to run it in the background)
 	go manager.Start()
 
-	// 3. 初始化 Gin
+	// 3. Initialize Gin
 	r := gin.Default()
 
-	// 4. 定义 WebSocket 路由
+	// 4. define WebSocket route
+	// execute lambda when receives GET method under /ws route
 	r.GET("/ws", func(c *gin.Context) {
 		wsHandler(manager, c.Writer, c.Request)
 	})
 
-	fmt.Println("直播弹幕服务器启动 :8080...")
+	fmt.Println("Live chat server is running on :8080...")
 	r.Run(":8080")
 }
 
-// 处理具体的连接请求
+// handle specific connection requests
 func wsHandler(manager *ws.Manager, w http.ResponseWriter, r *http.Request) {
-	// HTTP 升级为 WebSocket
+	// upgrade HTTP connection to WebSocket connection
+	// HTTP:short connection per request&response
+	// WebSocket:long connection, keep-alive
 	conn, err := upgrader.Upgrade(w, r, nil)
+	//Upgrade:Hijack tcp socket connection to upgrade to WebSocket connection
 	if err != nil {
 		return
 	}
 
-	// 创建一个新用户
+	// create a new client
 	client := &ws.Client{
 		Socket: conn,
-		Send:   make(chan []byte, 1024), // 缓冲 1024 条消息
+		Send:   make(chan []byte, 1024), // buffer 1024 bytes
 	}
 
-	// 注册给管家
+	// register the client to the manager
 	manager.Register <- client
 
-	// 开启读写协程
-	// 注意：WritePump 必须跑在协程里，ReadPump 因为有死循环，可以在当前协程跑
+	// start read and write goroutines
+	// note: WritePump must run in a goroutine, because ReadPump has a infinite loop, it can run in the current goroutine
 	go client.WritePump()
+	//dependency injection:
+	//inject manager to client rather than storing manager pointer in client struct
 	client.ReadPump(manager)
 }
