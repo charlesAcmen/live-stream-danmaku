@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"     // read input from stdin
-	"fmt"       // print to stdout
+	"flag"      // command line arguments
 	"log"       // log to stderr
 	"net/url"   // parse url
 	"os"        // operating system functions
@@ -12,9 +12,13 @@ import (
 )
 
 func main() {
+	// Define command-line flag for the target server port.
+	port := flag.String("port", "8080", "server port to connect to")
+	flag.Parse()
+
 	// 1. server address
 	//Scheme: protocol, Host: server address, Path: route
-	u := url.URL{Scheme: "ws", Host: "localhost:8080", Path: "/ws"}
+	u := url.URL{Scheme: "ws", Host: "localhost:" + *port, Path: "/ws"}
 	log.Printf("[CLIENT]Connecting to: %s", u.String())
 
 	// 2. initiate connection (handshake)
@@ -37,7 +41,8 @@ func main() {
 				return
 			}
 			// print received danmaku
-			fmt.Printf("[Live Chat]: %s\n[CLIENT]Please input: ", message)
+			log.Printf("[Live Chat]: %s\n", message)
+			log.Printf("[CLIENT]Please input:")
 		}
 	}()
 
@@ -45,8 +50,8 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
-	fmt.Println("[CLIENT]Connected Successfully!Now let's chat")
-	fmt.Print("[CLIENT]Please input: ")
+	log.Println("[CLIENT]Connected Successfully!Now let's chat")
+	log.Println("[CLIENT]Please input: ")
 	scanner := bufio.NewScanner(os.Stdin)
 
 	// 5.start a goroutine to handle keyboard input, prevent select from blocking
