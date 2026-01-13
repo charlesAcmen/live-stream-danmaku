@@ -1,0 +1,40 @@
+# --- Go 编译产物 (必须忽略) ---
+# 忽略所有 .exe 和 .dll (Windows)
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 忽略你在 main.go 同级目录下编译生成的二进制文件
+# 通常名字和文件夹一样，或者叫 main，或者叫 app
+# 这里比较暴力的做法是忽略所有没有后缀的文件(在win/wsl混用时要注意)
+# 更推荐的做法是明确指定你 build 出来的名字，比如：
+# cmd/client/client
+# cmd/server/server
+# 或者把编译结果统一放到 bin/ 目录下，然后忽略 bin/
+/bin/
+/dist/
+
+# --- IDE 和编辑器配置 ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- 敏感配置 (非常重要) ---
+# 你的数据库密码、Redis 密码通常放在这里
+.env
+.env.local
+config.yaml
+# 注意：如果你把 config.yaml 当模板用，可以提交一个 config.example.yaml
+
+# --- 操作系统垃圾 ---
+.DS_Store
+Thumbs.db
+
+# --- 测试报告 ---
+coverage.txt
+profile.out
+
+# --- 如果你以后用到 vendor 模式 ---
+vendor/
