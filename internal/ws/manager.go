@@ -1,7 +1,7 @@
 package ws
 
 import (
-	"context"
+	"context" // context is used to manage the lifecycle of the Redis client
 	"log"
 
 	"github.com/redis/go-redis/v9"
@@ -32,7 +32,8 @@ const RedisChannel = "chat_room"
 
 func NewManager() *Manager {
 	// Initialize Redis client.
-	// Ensure your Redis is running on localhost:6379 via Docker.
+	// Ensure Redis is running on localhost:6379 via Docker.
+	// Lazy loading: only create Redis client when first time trying to contact
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: "", // no password set
@@ -92,10 +93,13 @@ func (m *Manager) Start() {
 // subscribeToRedis listens for messages from Redis and broadcasts them locally.
 func (m *Manager) subscribeToRedis() {
 	// Subscribe to the channel.
+	//context.Background(): a default context that never cancels, never expires, and has no values.
+	//or context.WithTimeOut(...,3*time.Second)
 	pubsub := m.RedisClient.Subscribe(context.Background(), RedisChannel)
 	defer pubsub.Close()
 
 	// Go channel to receive Redis messages.
+	// read only
 	ch := pubsub.Channel()
 
 	// Loop over messages received from Redis.
@@ -104,6 +108,7 @@ func (m *Manager) subscribeToRedis() {
 		// Now we broadcast this message to all LOCAL clients.
 		for client := range m.Clients {
 			select {
+			//msg.Payload:string
 			case client.Send <- []byte(msg.Payload):
 			default:
 				// If client's send buffer is full, close and remove to prevent blocking.

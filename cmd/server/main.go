@@ -1,7 +1,8 @@
 package main
 
 import (
-	"fmt"
+	"flag" // command line arguments
+	"log"
 	"net/http"
 
 	"github.com/charlesAcmen/livestream-danmaku/internal/ws"
@@ -23,6 +24,13 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
+	// Define command-line flag for port. Default is 8080.
+	// port is argument name,8080 is default value, "server port" is help message
+	// port is in *string type
+	port := flag.String("port", "8080", "server port")
+	//resolve arguments,port is given value
+	flag.Parse()
+
 	// 1. Initialize the Manager
 	manager := ws.NewManager()
 	// 2. Start the Manager (start a goroutine to run it in the background)
@@ -37,8 +45,12 @@ func main() {
 		wsHandler(manager, c.Writer, c.Request)
 	})
 
-	fmt.Println("Live chat server is running on :8080...")
-	r.Run(":8080")
+	addr := ":" + *port
+	log.Printf("[SERVER]Starting server on port %s...", addr)
+	// Run server on the specified port
+	if err := r.Run(addr); err != nil {
+		log.Fatal("[SERVER]Server run failed:", err)
+	}
 }
 
 // handle specific connection requests
@@ -49,6 +61,7 @@ func wsHandler(manager *ws.Manager, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	//Upgrade:Hijack tcp socket connection to upgrade to WebSocket connection
 	if err != nil {
+		log.Println("[SERVER]Upgrade error:", err)
 		return
 	}
 
