@@ -28,3 +28,7 @@ type DanmakuMessage struct {
 	// Time
 	SendTime time.Time `gorm:"type:datetime(3);not null;index:idx_room_time"`
 }
+
+func (DanmakuMessage) TableName() string {
+	return "danmaku_messages"
+}

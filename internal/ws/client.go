@@ -5,7 +5,11 @@ import (
 )
 
 type Client struct {
-	ID     string          // client id
+	UserID     string // client id
+	Username   string
+	UserAvatar string
+	RoomID     string
+
 	Socket *websocket.Conn // the websocket connection that the server holds for each client
 	Send   chan []byte     // a channel to send messages to the client
 }

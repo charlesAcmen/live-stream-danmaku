@@ -1,12 +1,14 @@
 package main
 
 import (
-	"bufio"     // read input from stdin
-	"flag"      // command line arguments
+	"bufio" // read input from stdin
+	"flag"  // command line arguments
+	"fmt"
 	"log"       // log to stderr
 	"net/url"   // parse url
 	"os"        // operating system functions
 	"os/signal" // handle signals
+	"time"
 
 	"github.com/gorilla/websocket" // websocket library
 )
@@ -14,11 +16,30 @@ import (
 func main() {
 	// Define command-line flag for the target server port.
 	port := flag.String("port", "8080", "server port to connect to")
+	uid := flag.String("uid", "", "user id (random if empty)")
+	room := flag.String("room", "1001", "room id")
 	flag.Parse()
+
+	//Generate random user if not provided
+	if *uid == "" {
+		*uid = fmt.Sprintf("User-%d", time.Now().UnixNano())
+	}
+
+	log.Printf("Connecting as %s to Room %s...", *uid, *room)
 
 	// 1. server address
 	//Scheme: protocol, Host: server address, Path: route
 	u := url.URL{Scheme: "ws", Host: "localhost:" + *port, Path: "/ws"}
+	q := u.Query()
+	//?uid=...
+	q.Set("uid", *uid)
+	//&name=...
+	q.Set("name", *uid) // Use ID as name for simplicity
+	//&room=...
+	q.Set("room", *room)
+	u.RawQuery = q.Encode()
+
+	//ws://localhost:8080/ws?uid=1001&name=1001&room=1001
 	log.Printf("[CLIENT]Connecting to: %s", u.String())
 
 	// 2. initiate connection (handshake)

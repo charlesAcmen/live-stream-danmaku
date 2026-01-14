@@ -61,14 +61,14 @@ func (m *Manager) Start() {
 		case client := <-m.Register:
 			m.Clients[client] = true
 			log.Println(
-				"[MANAGER]New client ", client.ID, " connected. Total:", len(m.Clients))
+				"[MANAGER]New client ", client.UserID, " connected. Total:", len(m.Clients))
 		// 2. Client disconnecting
 		case client := <-m.Unregister:
 			if _, ok := m.Clients[client]; ok {
 				delete(m.Clients, client)
 				// close send channel to prevent GoRoutine leak
 				close(client.Send)
-				log.Println("[MANAGER]Client disconnected", client.ID, ". Total:", len(m.Clients))
+				log.Println("[MANAGER]Client disconnected", client.UserID, ". Total:", len(m.Clients))
 			}
 
 		case message := <-m.Broadcast:

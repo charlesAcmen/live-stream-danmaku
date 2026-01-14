@@ -55,6 +55,19 @@ func main() {
 
 // handle specific connection requests
 func wsHandler(manager *ws.Manager, w http.ResponseWriter, r *http.Request) {
+	// 1. Parse user info from URL query parameters
+	// Example: ws://localhost:8081/ws?uid=1001&name=Alice&room=Live001
+	query := r.URL.Query()
+	uid := query.Get("uid")
+	name := query.Get("name")
+	room := query.Get("room")
+
+	// Simple validation (Production needs JWT)
+	if uid == "" || room == "" {
+		http.Error(w, "Missing uid or room", http.StatusBadRequest)
+		return
+	}
+
 	// upgrade HTTP connection to WebSocket connection
 	// HTTP:short connection per request&response
 	// WebSocket:long connection, keep-alive
@@ -67,8 +80,12 @@ func wsHandler(manager *ws.Manager, w http.ResponseWriter, r *http.Request) {
 
 	// create a new client
 	client := &ws.Client{
-		Socket: conn,
-		Send:   make(chan []byte, 1024), // buffer 1024 bytes
+		UserID:     uid,
+		Username:   name,
+		RoomID:     room,
+		UserAvatar: "default.png", // Mock avatar
+		Socket:     conn,
+		Send:       make(chan []byte, 1024), // buffer 1024 bytes
 	}
 
 	// register the client to the manager
