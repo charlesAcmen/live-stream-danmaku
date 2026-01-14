@@ -6,16 +6,20 @@ import (
 
 // table danmaku_messages in danmaku_db database
 type DanmakuMessage struct {
+	//struct tag,结构体标签,reflection for GORM(Go Object-Relational Mapping)
 	ID uint64 `gorm:"primaryKey;autoIncrement"`
 
 	// Room info
-	RoomID   string `gorm:"type:varchar(50);not null;index:idx_room_time"`
-	RoomName string `gorm:"type:varchar(100);not null"` // 冗余存储，避免连表
+	//idx_room_time:composite index/joint index
+	RoomID string `gorm:"type:varchar(50);not null;index:idx_room_time"`
+
+	RoomName string `gorm:"type:varchar(100);not null"`
 
 	// User info
 	UserID   string `gorm:"type:varchar(50);not null;index"`
 	Username string `gorm:"type:varchar(50);not null"`
-	Avatar   string `gorm:"type:varchar(255)"`
+	//redundancy to avoid join tables
+	Avatar string `gorm:"type:varchar(255)"`
 
 	// Content
 	// utf8mb4 coding
