@@ -83,7 +83,7 @@ func wsHandler(manager *ws.Manager, w http.ResponseWriter, r *http.Request) {
 		UserID:     uid,
 		Username:   name,
 		RoomID:     room,
-		UserAvatar: "default.png", // Mock avatar
+		UserAvatar: "default_avatar.png", // Mock avatar
 		Socket:     conn,
 		Send:       make(chan []byte, 1024), // buffer 1024 bytes
 	}

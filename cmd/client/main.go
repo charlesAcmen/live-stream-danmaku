@@ -1,8 +1,9 @@
 package main
 
 import (
-	"bufio" // read input from stdin
-	"flag"  // command line arguments
+	"bufio"         // read input from stdin
+	"encoding/json" //serilize and deserilize danmaku messages
+	"flag"          // command line arguments
 	"fmt"
 	"log"       // log to stderr
 	"net/url"   // parse url
@@ -12,6 +13,12 @@ import (
 
 	"github.com/gorilla/websocket" // websocket library
 )
+
+// Helper struct to parse incoming JSON messages for display
+type IncomingMsg struct {
+	Username string `json:"username"`
+	Content  string `json:"content"`
+}
 
 func main() {
 	// Define command-line flag for the target server port.
@@ -61,8 +68,12 @@ func main() {
 				log.Println("[CLIENT]disconnected when receiving message", err)
 				return
 			}
+			// Parse the JSON message to display nicely
+			var msgData IncomingMsg
+			json.Unmarshal(message, &msgData)
+			log.Printf("[Live Chat][%s]: %s\n", msgData.Username, msgData.Content)
 			// print received danmaku
-			log.Printf("[Live Chat]: %s\n", message)
+			// log.Printf("[Live Chat]: %s\n", message)
 			log.Printf("[CLIENT]Please input:")
 		}
 	}()
@@ -78,6 +89,7 @@ func main() {
 	// 5.start a goroutine to handle keyboard input, prevent select from blocking
 	go func() {
 		for scanner.Scan() {
+			//send raw danmaku text,the server will wrap it into JSON with userid etc
 			text := scanner.Text()
 			err := c.WriteMessage(websocket.TextMessage, []byte(text))
 			if err != nil {

@@ -29,9 +29,10 @@ type Manager struct {
 	KafkaProducer sarama.SyncProducer
 }
 
-// Global constant for the Redis channel name.
-// In a real app, this might be dynamic (e.g., "room:1001").
-const RedisChannel = "chat_room"
+const (
+	RedisChannel = "chat_room"
+	KafkaTopic   = "danmaku_save_topic" // Topic name for Kafka
+)
 
 func NewManager() *Manager {
 	// Initialize Redis client.
@@ -42,12 +43,32 @@ func NewManager() *Manager {
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
+
+	// 2. Init Kafka Producer
+	// Configure Sarama settings
+	config := sarama.NewConfig()
+	// We must wait for the acknowledgment from Kafka to ensure data is safe.
+	config.Producer.RequiredAcks = sarama.WaitForAll
+	// We need to return success info to avoid errors in SyncProducer.
+	config.Producer.Return.Successes = true
+	// Use Random partitioner to distribute messages evenly.
+	config.Producer.Partitioner = sarama.NewRandomPartitioner
+
+	// Connect to Kafka (running on localhost:9092 (in .yaml) via Docker)
+	producer, err := sarama.NewSyncProducer([]string{"localhost:9092"}, config)
+	if err != nil {
+		// In production, we might want to retry or fail gracefully.
+		// For now, we panic because without Kafka, persistence fails.
+		log.Panicf("[MANAGER]Failed to start Kafka producer: %v", err)
+	}
+
 	return &Manager{
-		Register:    make(chan *Client),
-		Unregister:  make(chan *Client),
-		Broadcast:   make(chan []byte),
-		Clients:     make(map[*Client]bool),
-		RedisClient: rdb,
+		Register:      make(chan *Client),
+		Unregister:    make(chan *Client),
+		Broadcast:     make(chan []byte),
+		Clients:       make(map[*Client]bool),
+		RedisClient:   rdb,
+		KafkaProducer: producer,
 	}
 }
 
@@ -72,12 +93,26 @@ func (m *Manager) Start() {
 			}
 
 		case message := <-m.Broadcast:
-			// Publish the message to the "chat_room" channel in Redis.
+			// Publish the message to the "RedisChannel" in Redis.
 			err := m.RedisClient.Publish(context.Background(), RedisChannel, message).Err()
 			if err != nil {
 				log.Printf("[MANAGER]Error publishing to Redis: %v", err)
 			}
 			log.Printf("[MANAGER]Message published to Redis: %s", message)
+
+			// Produce to Kafka (For Storage/Persistence)
+			// 'message' is already a JSON bytes containing user info & content.
+			kafkaMsg := &sarama.ProducerMessage{
+				Topic: KafkaTopic,
+				Value: sarama.ByteEncoder(message),
+			}
+
+			// Send to Kafka (Sync)
+			_, _, err = m.KafkaProducer.SendMessage(kafkaMsg)
+			if err != nil {
+				log.Printf("[MANAGER]Kafka Produce Error: %v", err)
+				// Note: In real world, we might want to save to a local file if Kafka fails (Fallback).
+			}
 			// for conn := range m.Clients {
 			// 	select {
 			// 	case conn.Send <- message:
@@ -107,7 +142,7 @@ func (m *Manager) subscribeToRedis() {
 
 	// Loop over messages received from Redis.
 	for msg := range ch {
-		// msg.Payload contains the actual message string.
+		// msg.Payload is the JSON string
 		// Now we broadcast this message to all LOCAL clients.
 		for client := range m.Clients {
 			select {
