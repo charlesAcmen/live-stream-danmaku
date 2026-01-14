@@ -4,7 +4,7 @@ import (
 	"context" // context is used to manage the lifecycle of the Redis client
 	"log"
 
-	"github.com/IBM/sarama"
+	"github.com/IBM/sarama" //driver for apache Kafka clients lib
 	"github.com/redis/go-redis/v9"
 )
 
@@ -48,10 +48,14 @@ func NewManager() *Manager {
 	// Configure Sarama settings
 	config := sarama.NewConfig()
 	// We must wait for the acknowledgment from Kafka to ensure data is safe.
+	//   - NoResponse
+	//   - WaitForLocal: Leader returns OK after receiving
+	//   - WaitForAll: all follower synced
 	config.Producer.RequiredAcks = sarama.WaitForAll
 	// We need to return success info to avoid errors in SyncProducer.
 	config.Producer.Return.Successes = true
-	// Use Random partitioner to distribute messages evenly.
+	// multiple partitions in one topic of Kafka
+	// Use Random partitioner to distribute messages evenly in all partitions
 	config.Producer.Partitioner = sarama.NewRandomPartitioner
 
 	// Connect to Kafka (running on localhost:9092 (in .yaml) via Docker)
@@ -104,10 +108,12 @@ func (m *Manager) Start() {
 			// 'message' is already a JSON bytes containing user info & content.
 			kafkaMsg := &sarama.ProducerMessage{
 				Topic: KafkaTopic,
+				//Kafka is a byte logging system that deal with binary bytes stream
 				Value: sarama.ByteEncoder(message),
 			}
 
 			// Send to Kafka (Sync)
+			// partition,offset,err
 			_, _, err = m.KafkaProducer.SendMessage(kafkaMsg)
 			if err != nil {
 				log.Printf("[MANAGER]Kafka Produce Error: %v", err)
