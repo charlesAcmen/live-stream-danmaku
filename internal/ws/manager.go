@@ -4,6 +4,7 @@ import (
 	"context" // context is used to manage the lifecycle of the Redis client
 	"log"
 
+	"github.com/IBM/sarama"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -24,6 +25,8 @@ type Manager struct {
 
 	// RedisClient: the connection to the Redis server.
 	RedisClient *redis.Client
+
+	KafkaProducer sarama.SyncProducer
 }
 
 // Global constant for the Redis channel name.
