@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -17,17 +16,11 @@ import (
 )
 
 const (
-	KafkaTopic = "danmu_save_topic"
-	BatchSize  = 100             // threshold for per write in db
-	BatchTime  = 1 * time.Second // period for trying to write in db
+	KafkaTopic   = "danmaku_save_topic"
+	KafkaGroupID = "danmaku_consumer_group_v1" //should be unique
+	BatchSize    = 100                         // threshold for per write in db
+	BatchTime    = 2 * time.Second             // period for trying to write in db
 )
-
-// 1. Define the Handler structure
-type DanmakuConsumerGroupHandler struct {
-	db     *gorm.DB
-	buffer []*model.DanmakuMessage
-	mu     sync.Mutex // Protect buffer, though usually one routine per claim
-}
 
 func main() {
 	// 1. init db
@@ -80,6 +73,7 @@ func main() {
 
 	// func to flush in all data in buffer towards db
 	flushDB := func() {
+		log.Print("[KAFKA CONSUMER] flushDB called")
 		if len(buffer) == 0 {
 			return
 		}
@@ -101,7 +95,9 @@ func main() {
 		case msg := <-partitionConsumer.Messages():
 			var danmu model.DanmakuMessage
 			err := json.Unmarshal(msg.Value, &danmu)
+			log.Print("[KAFKA CONSUMER] Received message from partition consumer")
 			if err == nil {
+				log.Printf("[KAFKA CONSUMER] Appending danmaku %s", msg.Value)
 				buffer = append(buffer, &danmu)
 				if len(buffer) >= BatchSize {
 					flushDB()
