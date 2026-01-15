@@ -101,9 +101,9 @@ func (m *Manager) Start() {
 			err := m.RedisClient.Publish(context.Background(), RedisChannel, message).Err()
 			if err != nil {
 				log.Printf("[MANAGER]Error publishing to Redis: %v", err)
+			} else {
+				log.Printf("[MANAGER]Message published to Redis: %s", message)
 			}
-			log.Printf("[MANAGER]Message published to Redis: %s", message)
-
 			// Produce to Kafka (For Storage/Persistence)
 			// 'message' is already a JSON bytes containing user info & content.
 			kafkaMsg := &sarama.ProducerMessage{
