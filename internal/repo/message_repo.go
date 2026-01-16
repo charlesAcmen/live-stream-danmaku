@@ -2,7 +2,7 @@
 package repo
 
 import (
-	"time"
+	"time" //IsZero()
 
 	"github.com/charlesAcmen/livestream-danmaku/internal/model"
 
@@ -25,26 +25,35 @@ func (r *MessageRepo) CreateInBatches(msgs []*model.DanmakuMessage) error {
 	return r.db.CreateInBatches(msgs, len(msgs)).Error
 }
 
-// GetHistoryByRoomID fetches historical messages for a room.
-// Implementation of "YouTube-style" playback: fetch N messages after a specific time.
-// If lastTime is zero, fetch the latest messages (live mode initial load).
-func (r *MessageRepo) GetHistoryByRoomID(roomID string, lastTime time.Time, limit int) ([]*model.DanmakuMessage, error) {
+// GetPlayBackMsgByRoomID fetches messages for video playback
+// (VOD video on demand mode).
+// It retrieves messages that happened AFTER specific timestamp.
+// queryTime: The current timestamp of the video player progress.
+func (r *MessageRepo) GetPlayBackMsgByRoomID(roomID string, queryTime time.Time, limit int) ([]*model.DanmakuMessage, error) {
 	var msgs []*model.DanmakuMessage
 
+	//1.init SQL builder
+	//SELECT * FROM danmaku_messages WHERE rood_id = `1001`
 	query := r.db.Where("room_id = ?", roomID)
 
-	if !lastTime.IsZero() {
-		// Pagination: Fetch messages OLDER than the cursor (History scroll up)
+	//"0001-01-01 00:00:00" empty time
+	if !queryTime.IsZero() {
+		// Cursor Pagination: Fetch messages OLDER than the cursor (History scroll up)
 		// Or NEWER than the cursor (Playback forward).
 		// Let's assume typical history load: Load latest N messages.
-		query = query.Where("send_time < ?", lastTime)
+		query = query.Where("send_time >= ?", queryTime)
 	}
 
-	// Order by time DESC (latest first) so we get the most recent ones.
-	// Frontend will reverse array to show timeline.
-	err := query.Order("send_time DESC").
+	// Order by time ASC (oldest first)
+	err := query.Order("send_time ASC").
 		Limit(limit).
+		//Find will execute SQL
 		Find(&msgs).Error
+	// SELECT * FROM danmaku_messages
+	// WHERE room_id = '1001' AND send_time >= '...'
+	// ORDER BY send_time ASC
+	// LIMIT 20;
 
 	return msgs, err
+
 }
