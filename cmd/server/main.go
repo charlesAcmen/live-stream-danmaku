@@ -3,25 +3,15 @@ package main
 import (
 	"flag" // command line arguments
 	"log"
-	"net/http"
 
+	"github.com/charlesAcmen/livestream-danmaku/internal/api"
+	"github.com/charlesAcmen/livestream-danmaku/internal/repo"
+	"github.com/charlesAcmen/livestream-danmaku/internal/service"
 	"github.com/charlesAcmen/livestream-danmaku/internal/ws"
-	"github.com/gin-gonic/gin"     // Gin is a web framework for Go.
-	"github.com/gorilla/websocket" // Gorilla WebSocket is a WebSocket implementation for Go.
+	"github.com/gin-gonic/gin" // Gin is a web framework for Go.
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
-
-// Configure the Upgrader
-// An Upgrader converts an HTTP connection to a WebSocket connection.
-var upgrader = websocket.Upgrader{
-	// CheckOrigin allows us to customize which requests are allowed to connect.
-	// By default, the Upgrader checks if the request origin matches the host.
-	CheckOrigin: func(r *http.Request) bool {
-		// returning true means: "Allow ALL connections from ANY website or domain."
-		// WARNING: This is great for development (e.g., localhost),
-		// but can be insecure in production (CSRF: Cross-Site Request Forgery risks).
-		return true
-	},
-}
 
 func main() {
 	// Define command-line flag for port. Default is 8080.
@@ -31,70 +21,61 @@ func main() {
 	//resolve arguments,port is given value
 	flag.Parse()
 
-	// 1. Initialize the Manager
+	// 1. Init DB (Shared by all layers)
+	dsn := "root:root@tcp(127.0.0.1:3306)/danmaku_db?charset=utf8mb4&parseTime=True&loc=Local"
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 2. Init Layers (Dependency Injection)
+	// Repo -> Service -> Handler
+	messageRepo := repo.NewMessageRepo(db)
+	chatService := service.NewChatService(messageRepo)
+	chatHandler := api.NewChatHandler(chatService)
+
+	// 3. Init WebSocket Manager
 	manager := ws.NewManager()
-	// 2. Start the Manager (start a goroutine to run it in the background)
 	go manager.Start()
 
-	// 3. Initialize Gin
+	// 4. Init Router
 	r := gin.Default()
 
-	// 4. define WebSocket route
-	// execute lambda when receives GET method under /ws route
+	// HTTP API Group
+	v1 := r.Group("/api/v1")
+	{
+		// GET /api/v1/history?room=1001
+		v1.GET("/history", chatHandler.GetHistory)
+	}
+
+	// WebSocket Route
 	r.GET("/ws", func(c *gin.Context) {
-		wsHandler(manager, c.Writer, c.Request)
+		// 这里还是直接调 wsHandler (稍微有点混搭，暂时没关系)
+		// 理想情况下 wsHandler 也应该封装进 api 包
+		ws.WsHandler(manager, c.Writer, c.Request)
 	})
 
-	addr := ":" + *port
-	log.Printf("[SERVER]Starting server on port %s...", addr)
-	// Run server on the specified port
-	if err := r.Run(addr); err != nil {
-		log.Fatal("[SERVER]Server run failed:", err)
-	}
-}
+	// ... Run
+	r.Run(":" + *port)
 
-// handle specific connection requests
-func wsHandler(manager *ws.Manager, w http.ResponseWriter, r *http.Request) {
-	// 1. Parse user info from URL query parameters
-	// Example: ws://localhost:8081/ws?uid=1001&name=Alice&room=Live001
-	query := r.URL.Query()
-	uid := query.Get("uid")
-	name := query.Get("name")
-	room := query.Get("room")
+	// // 1. Initialize the Manager
+	// manager := ws.NewManager()
+	// // 2. Start the Manager (start a goroutine to run it in the background)
+	// go manager.Start()
 
-	// Simple validation (Production needs JWT)
-	if uid == "" || room == "" {
-		http.Error(w, "Missing uid or room", http.StatusBadRequest)
-		return
-	}
+	// // 3. Initialize Gin
+	// r := gin.Default()
 
-	// upgrade HTTP connection to WebSocket connection
-	// HTTP:short connection per request&response
-	// WebSocket:long connection, keep-alive
-	conn, err := upgrader.Upgrade(w, r, nil)
-	//Upgrade:Hijack tcp socket connection to upgrade to WebSocket connection
-	if err != nil {
-		log.Println("[SERVER]Upgrade error:", err)
-		return
-	}
+	// // 4. define WebSocket route
+	// // execute lambda when receives GET method under /ws route
+	// r.GET("/ws", func(c *gin.Context) {
+	// 	wsHandler(manager, c.Writer, c.Request)
+	// })
 
-	// create a new client
-	client := &ws.Client{
-		UserID:     uid,
-		Username:   name,
-		RoomID:     room,
-		UserAvatar: "default_avatar.png", // Mock avatar
-		Socket:     conn,
-		Send:       make(chan []byte, 1024), // buffer 1024 bytes
-	}
-
-	// register the client to the manager
-	manager.Register <- client
-
-	// start read and write goroutines
-	// note: WritePump must run in a goroutine, because ReadPump has a infinite loop, it can run in the current goroutine
-	go client.WritePump()
-	//dependency injection:
-	//inject manager to client rather than storing manager pointer in client struct
-	client.ReadPump(manager)
+	// addr := ":" + *port
+	// log.Printf("[SERVER]Starting server on port %s...", addr)
+	// // Run server on the specified port
+	// if err := r.Run(addr); err != nil {
+	// 	log.Fatal("[SERVER]Server run failed:", err)
+	// }
 }

@@ -3,8 +3,10 @@ package ws
 import (
 	"context" // context is used to manage the lifecycle of the Redis client
 	"log"
+	"net/http"
 
-	"github.com/IBM/sarama" //driver for apache Kafka clients lib
+	"github.com/IBM/sarama"        //driver for apache Kafka clients lib
+	"github.com/gorilla/websocket" // Gorilla WebSocket is a WebSocket implementation for Go.
 	"github.com/redis/go-redis/v9"
 )
 
@@ -161,4 +163,63 @@ func (m *Manager) subscribeToRedis() {
 			}
 		}
 	}
+}
+
+// Configure the Upgrader
+// An Upgrader converts an HTTP connection to a WebSocket connection.
+var upgrader = websocket.Upgrader{
+	// CheckOrigin allows us to customize which requests are allowed to connect.
+	// By default, the Upgrader checks if the request origin matches the host.
+	CheckOrigin: func(r *http.Request) bool {
+		// returning true means: "Allow ALL connections from ANY website or domain."
+		// WARNING: This is great for development (e.g., localhost),
+		// but can be insecure in production (CSRF: Cross-Site Request Forgery risks).
+		return true
+	},
+}
+
+// handle specific connection requests
+func WsHandler(manager *Manager, w http.ResponseWriter, r *http.Request) {
+	// 1. Parse user info from URL query parameters
+	// Example: ws://localhost:8081/ws?uid=1001&name=Alice&room=Live001
+	query := r.URL.Query()
+	uid := query.Get("uid")
+	name := query.Get("name")
+	room := query.Get("room")
+
+	// Simple validation (Production needs JWT)
+	if uid == "" || room == "" {
+		http.Error(w, "Missing uid or room", http.StatusBadRequest)
+		return
+	}
+
+	// upgrade HTTP connection to WebSocket connection
+	// HTTP:short connection per request&response
+	// WebSocket:long connection, keep-alive
+	conn, err := upgrader.Upgrade(w, r, nil)
+	//Upgrade:Hijack tcp socket connection to upgrade to WebSocket connection
+	if err != nil {
+		log.Println("[SERVER]Upgrade error:", err)
+		return
+	}
+
+	// create a new client
+	client := &Client{
+		UserID:     uid,
+		Username:   name,
+		RoomID:     room,
+		UserAvatar: "default_avatar.png", // Mock avatar
+		Socket:     conn,
+		Send:       make(chan []byte, 1024), // buffer 1024 bytes
+	}
+
+	// register the client to the manager
+	manager.Register <- client
+
+	// start read and write goroutines
+	// note: WritePump must run in a goroutine, because ReadPump has a infinite loop, it can run in the current goroutine
+	go client.WritePump()
+	//dependency injection:
+	//inject manager to client rather than storing manager pointer in client struct
+	client.ReadPump(manager)
 }
