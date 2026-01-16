@@ -25,11 +25,11 @@ func (r *MessageRepo) CreateInBatches(msgs []*model.DanmakuMessage) error {
 	return r.db.CreateInBatches(msgs, len(msgs)).Error
 }
 
-// GetPlayBackMsgByRoomID fetches messages for video playback
+// GetPlayBackDanmaku fetches messages for video playback
 // (VOD video on demand mode).
 // It retrieves messages that happened AFTER specific timestamp.
 // queryTime: The current timestamp of the video player progress.
-func (r *MessageRepo) GetPlayBackMsgByRoomID(roomID string, queryTime time.Time, limit int) ([]*model.DanmakuMessage, error) {
+func (r *MessageRepo) GetPlayBackDanmaku(roomID string, queryTime time.Time, limit int) ([]*model.DanmakuMessage, error) {
 	var msgs []*model.DanmakuMessage
 
 	//1.init SQL builder

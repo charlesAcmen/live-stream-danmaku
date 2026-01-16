@@ -25,7 +25,7 @@ func main() {
 	dsn := "root:root@tcp(127.0.0.1:3306)/danmaku_db?charset=utf8mb4&parseTime=True&loc=Local"
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("[MIGRATE]Failed to connect to database:", err)
 	}
 
 	// 2. Init Layers (Dependency Injection)
@@ -44,8 +44,9 @@ func main() {
 	// HTTP API Group
 	v1 := r.Group("/api/v1")
 	{
-		// GET /api/v1/history?room=1001
-		v1.GET("/history", chatHandler.GetHistory)
+		//live stream playback url
+		// URL: http://localhost:8080/api/v1/playback?room=1001&time=...
+		v1.GET("/playback", chatHandler.HandlePlaybackRequest)
 	}
 
 	// WebSocket Route
