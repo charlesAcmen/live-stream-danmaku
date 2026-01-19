@@ -221,9 +221,9 @@ func (m *Manager) broadcastStats() {
 		}
 	}
 }
-
+// AddLike increments the like counter in Redis atomically.
 func (m *Manager) AddLike() {
-
+	m.RedisClient.Incr(context.Background(), KeyTotalLikes)
 }
 
 // Configure the Upgrader
