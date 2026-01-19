@@ -3,7 +3,6 @@ package ws
 import (
 	"encoding/json"
 	"log"
-	"time"
 
 	"github.com/charlesAcmen/livestream-danmaku/internal/model" //database structures
 	"github.com/gorilla/websocket"
@@ -40,26 +39,16 @@ func (c *Client) ReadPump(manager *Manager) {
 			break // if read error, break the loop
 		}
 
-		// This ensures all downstream systems (Redis, Kafka) know WHO sent it.
-		msgObj := model.DanmakuMessage{
-			RoomID:     c.RoomID,
-			UserID:     c.UserID,
-			Username:   c.Username,
-			UserAvatar: c.UserAvatar,
-			Content:    string(messageBytes), // The actual text
-			//if sent successfully,set send time as accepting time
-			SendTime: time.Now(),
-		}
-
-		// 3. Serialize to JSON bytes
-		jsonBytes, err := json.Marshal(msgObj)
-		if err != nil {
-			log.Println("[CLIENT]JSON Marshal Error:", err)
+		// 2. Parse the Envelope (WsPacket)
+		var packet model.WsPacket
+		if err := json.Unmarshal(messageBytes, &packet); err != nil {
+			log.Print("[CLIENT]Invalid JSON format")
 			continue
 		}
 
-		// 2. send the JSON bytes to Manager's broadcast channel
-		manager.Broadcast <- jsonBytes
+		// 3. Dispatch to Handler
+		// We pass 'manager' because handlers need to Broadcast or AddLike.
+		Dispatch(c, manager, packet.Type, packet.Data)
 	}
 }
 

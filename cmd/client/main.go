@@ -11,6 +11,7 @@ import (
 	"os/signal" // handle signals
 	"time"
 
+	"github.com/charlesAcmen/livestream-danmaku/internal/model"
 	"github.com/gorilla/websocket" // websocket library
 )
 
@@ -18,6 +19,22 @@ import (
 type IncomingMsg struct {
 	Username string `json:"username"`
 	Content  string `json:"content"`
+}
+
+func sendPacket(c *websocket.Conn, msgType int, data interface{}) {
+	// 1.data to JSON bytes
+	// e.g. {"content": "hello"}
+	dataBytes, _ := json.Marshal(data)
+
+	// 2. construct websocket packet
+	packet := model.WsPacket{
+		Type: msgType,
+		//json.RawMessage
+		Data: dataBytes,
+	}
+	if err := c.WriteJSON(packet); err != nil {
+		log.Println("[CLIENT]Failed to send:", err)
+	}
 }
 
 func main() {
@@ -68,12 +85,32 @@ func main() {
 				log.Println("[CLIENT]disconnected when receiving message", err)
 				return
 			}
+
+			// 1. unwrap wsPacket
+			var packet model.WsPacket
+			if err := json.Unmarshal(message, &packet); err != nil {
+				continue
+			}
+			// 2.
+			switch packet.Type {
+
+			case model.TypeDanmaku:
+				var danmu model.DanmakuMessage
+				json.Unmarshal(packet.Data, &danmu)
+				log.Printf("\r[Live Chat][%s]: %s\n", danmu.Username, danmu.Content)
+
+			case model.TypeStats:
+				var stats model.StatsData
+				json.Unmarshal(packet.Data, &stats)
+				log.Printf("\r[STATS] Online: %d | Likes: %d\n", stats.Online, stats.Likes)
+			}
+
 			// Parse the JSON message to display nicely
-			var msgData IncomingMsg
-			json.Unmarshal(message, &msgData)
-			log.Printf("[Live Chat][%s]: %s\n", msgData.Username, msgData.Content)
-			// print received danmaku
-			// log.Printf("[Live Chat]: %s\n", message)
+			// var msgData IncomingMsg
+			// json.Unmarshal(message, &msgData)
+			// log.Printf("[Live Chat][%s]: %s\n", msgData.Username, msgData.Content)
+			// // print received danmaku
+			// // log.Printf("[Live Chat]: %s\n", message)
 			log.Printf("[CLIENT]Please input:")
 		}
 	}()
@@ -91,11 +128,27 @@ func main() {
 		for scanner.Scan() {
 			//send raw danmaku text,the server will wrap it into JSON with userid etc
 			text := scanner.Text()
-			err := c.WriteMessage(websocket.TextMessage, []byte(text))
-			if err != nil {
-				log.Println("[CLIENT]Failed to send message:", err)
-				return
+			if text == "1" {
+				// ActionLike (103)
+				// data:empty
+				sendPacket(c, model.ActionLike, nil)
+				log.Println("已点赞 ❤️")
+
+			} else {
+				// === 发送弹幕 ===
+				// 类型：TypeDanmu (101)
+				// 数据：DanmuMessage {Content: text}
+				// 注意：客户端只需要填 Content，其他 ID/Time 由服务器填
+				msg := model.DanmakuMessage{
+					Content: text,
+				}
+				sendPacket(c, model.TypeDanmaku, msg)
 			}
+			// err := c.WriteMessage(websocket.TextMessage, []byte(text))
+			// if err != nil {
+			// 	log.Println("[CLIENT]Failed to send message:", err)
+			// 	return
+			// }
 		}
 	}()
 

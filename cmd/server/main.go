@@ -21,6 +21,9 @@ func main() {
 	//resolve arguments,port is given value
 	flag.Parse()
 
+	//IMPORTANT:initialize logic handler functions[Danmaku,Like,Broadcast stats]
+	ws.InitHandlers()
+
 	// 1. Init DB (Shared by all layers)
 	dsn := "root:root@tcp(127.0.0.1:3306)/danmaku_db?charset=utf8mb4&parseTime=True&loc=Local"
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})

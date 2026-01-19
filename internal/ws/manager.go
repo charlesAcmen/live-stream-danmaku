@@ -165,6 +165,10 @@ func (m *Manager) subscribeToRedis() {
 	}
 }
 
+func (m *Manager) AddLike() {
+
+}
+
 // Configure the Upgrader
 // An Upgrader converts an HTTP connection to a WebSocket connection.
 var upgrader = websocket.Upgrader{
