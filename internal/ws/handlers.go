@@ -2,13 +2,16 @@ package ws
 
 import (
 	"encoding/json"
-	"log"
 	"time"
 
+	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
+
 	"github.com/charlesAcmen/livestream-danmaku/internal/model"
+	"go.uber.org/zap"
 )
 
-// InitHandlers registers all business logic.
+// InitHandlers registers all business logic callbacks.
+// This implements the "Strategy Pattern" to handle different WebSocket message types.
 // MUST be called in main.go before server starts.
 func InitHandlers() {
 
@@ -18,7 +21,10 @@ func InitHandlers() {
 		// The client only sends {"content": "hello"}
 		var inputMsg model.DanmakuMessage
 		if err := json.Unmarshal(data, &inputMsg); err != nil {
-			log.Println("[HANDLER]Invalid Danmaku Data")
+			logger.Log.Error("[SERVER HANDLER]Invalid Danmaku Data format",
+				zap.String("uid", c.UserID),
+				zap.Error(err),
+			)
 			return
 		}
 
@@ -45,16 +51,25 @@ func InitHandlers() {
 		// D. send the JSON bytes to Manager's broadcast channel
 		finalBytes, _ := json.Marshal(outgoingPacket)
 		m.Broadcast <- finalBytes
+		logger.Log.Debug("[SERVER HANDLER]Danmaku processed",
+			zap.String("uid", c.UserID),
+			zap.String("room", c.RoomID),
+			zap.String("content", inputMsg.Content),
+		)
 	})
 
-	log.Print("[HANDLER]Registered Danmaku handler")
+	logger.Log.Info("[SERVER HANDLER]Registered Handler: Danmaku")
 
 	// 2. Handle Like Logic
 	Register(model.ActionLike, func(c *Client, m *Manager, data []byte) {
 		// No data parsing needed for simple like
+		// Update the like counter in Redis (via Manager)
 		m.AddLike()
-		log.Printf("[HANDLER] User %s liked the stream", c.UserID)
+		logger.Log.Debug("[SERVER HANDLER]User liked the stream",
+			zap.String("uid", c.UserID),
+			zap.String("room", c.RoomID),
+		)
 
 	})
-	log.Print("[HANDLER]Registered like & action handler")
+	logger.Log.Info("Registered Handler: Like/Action")
 }
