@@ -12,16 +12,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// DanmakuHandler 实现了 sarama.ConsumerGroupHandler 接口
-// 它负责攒批、定时flush、写入数据库
+// DanmakuHandler inherits from sarama.ConsumerGroupHandler interface
+// collect in batch、flush on clock、push to db
 type DanmakuHandler struct {
 	db        *gorm.DB
 	buffer    []*model.DanmakuMessage
 	batchSize int
-	mu        sync.Mutex // 保护 buffer，防止并发读写冲突
+	mu        sync.Mutex // protect buffer
 }
 
-// NewDanmakuHandler 创建处理器实例
+// NewDanmakuHandler
 func NewDanmakuHandler(db *gorm.DB, batchSize int) *DanmakuHandler {
 	return &DanmakuHandler{
 		db:        db,
@@ -30,105 +30,107 @@ func NewDanmakuHandler(db *gorm.DB, batchSize int) *DanmakuHandler {
 	}
 }
 
-// Setup 在新会话开始前运行（sarama 接口要求）
+// Setup is run at the beginning of a new session, before ConsumeClaim.
 func (h *DanmakuHandler) Setup(sarama.ConsumerGroupSession) error {
 	logger.Log.Info("[KAFKA HANDLER] Consumer group session started")
 	return nil
 }
 
-// Cleanup 在会话结束后运行（sarama 接口要求）
+// Cleanup is run at the end of a session, once all ConsumeClaim goroutines have exited.
 func (h *DanmakuHandler) Cleanup(sarama.ConsumerGroupSession) error {
-	// 退出前，强制把剩余的数据写入数据库
+	// Critical: Flush remaining data in the buffer to DB before exiting.
+	// This prevents data loss during rebalancing or shutdown.
 	h.flushDB()
 	logger.Log.Info("[KAFKA HANDLER] Consumer group session ended")
 	return nil
 }
 
-// ConsumeClaim 是核心循环，必须在这里读取消息
+// ConsumeClaim
 func (h *DanmakuHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	// 定义定时器，防止 buffer 没满导致数据一直不存
+	// Use a ticker to ensure data is flushed periodically even if the buffer isn't full.
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	// The loop continues until the claim is closed or the context is canceled.
 	for {
 		select {
-		// 1. 收到 Kafka 消息
+		// Case 1: Receive a new message from Kafka
 		case msg, ok := <-claim.Messages():
 			if !ok {
+				// Channel closed, meaning rebalancing or shutdown initiated.
 				logger.Log.Warn("[KAFKA HANDLER] Message channel closed")
 				return nil
 			}
-
-			// 处理这一条消息
+			// Process the message (parse JSON, add to buffer)
 			h.processMessage(msg)
 
-			// 标记这条消息已被消费（注意：这里只是标记，Commit 是异步的）
+			// Mark the message as consumed.
+			// Note: This does not commit the offset immediately. Sarama commits periodically in the background.
 			session.MarkMessage(msg, "")
 
-		// 2. 定时器响了，强制 flush
 		case <-ticker.C:
 			h.flushDB()
 
-		// 3. 外部通知退出 (比如 Ctrl+C)
+		// Case 3: External shutdown signal (e.g., Ctrl+C)
 		case <-session.Context().Done():
 			return nil
 		}
 	}
 }
 
-// processMessage 解析并添加到 buffer
+// processMessage parses the raw Kafka message and appends it to the local buffer.
 func (h *DanmakuHandler) processMessage(msg *sarama.ConsumerMessage) {
-	// 解析外层 Packet
+	// out most Packet
 	var packet model.WsPacket
 	if err := json.Unmarshal(msg.Value, &packet); err != nil {
-		logger.Log.Error("Failed to unmarshal WsPacket", zap.Error(err))
+		logger.Log.Error("[KAFKA HANDLER]Failed to unmarshal WsPacket", zap.Error(err))
 		return
 	}
 
-	// 过滤：只处理弹幕消息
+	// boolean filter:only danmaku
 	if packet.Type != model.TypeDanmaku {
 		return
 	}
 
-	// 解析内层数据
+	// resolve inner danmaku
 	var danmu model.DanmakuMessage
 	if err := json.Unmarshal(packet.Data, &danmu); err != nil {
-		logger.Log.Error("Failed to unmarshal DanmakuMessage", zap.Error(err))
+		logger.Log.Error("[KAFKA HANDLER]Failed to unmarshal DanmakuMessage", zap.Error(err))
 		return
 	}
 
 	h.mu.Lock()
 	h.buffer = append(h.buffer, &danmu)
+	// Check if buffer is full (Batch processing)
 	shouldFlush := len(h.buffer) >= h.batchSize
 	h.mu.Unlock()
 
-	// 如果满了，立即写入
 	if shouldFlush {
 		h.flushDB()
 	}
 }
 
-// flushDB 将 buffer 数据写入 MySQL
+// flushDB writes the buffered messages to the database in a single batch.
 func (h *DanmakuHandler) flushDB() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-
+	// Optimization: Don't query DB if buffer is emptys
 	if len(h.buffer) == 0 {
 		return
 	}
 
 	count := len(h.buffer)
-	logger.Log.Debug("Flushing data to DB", zap.Int("count", count))
+	logger.Log.Debug("[KAFKA HANDLER]Flushing data to DB", zap.Int("count", count))
 
-	// 使用 GORM 批量插入
+	// GORM
 	if err := h.db.CreateInBatches(h.buffer, 100).Error; err != nil {
-		logger.Log.Error("Insert DB Failed", zap.Error(err))
+		logger.Log.Error("[KAFKA HANDLER]Insert DB Failed", zap.Error(err))
 		// 工业级思考：这里如果失败了，buffer 里的数据可能会丢失。
 		// 进阶做法是重试，或者写入本地文件兜底。目前先打印 Error。
 	} else {
-		logger.Log.Info("Saved messages to MySQL", zap.Int("count", count))
+		logger.Log.Info("[KAFKA HANDLER]Saved messages to MySQL", zap.Int("count", count))
 	}
 
-	// 清空 buffer，保留容量
+	// Clear the buffer but keep the underlying capacity to avoid memory reallocation.
 	h.buffer = h.buffer[:0]
 }
