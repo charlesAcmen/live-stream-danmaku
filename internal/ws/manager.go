@@ -89,7 +89,7 @@ func (m *Manager) Start() {
 	go m.subscribeToRedis()
 	// 2. [NEW] Setup Ticker: Broadcast stats every 3 seconds
 	// This prevents broadcasting storm when likes increase rapidly.
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -221,6 +221,7 @@ func (m *Manager) broadcastStats() {
 		}
 	}
 }
+
 // AddLike increments the like counter in Redis atomically.
 func (m *Manager) AddLike() {
 	m.RedisClient.Incr(context.Background(), KeyTotalLikes)

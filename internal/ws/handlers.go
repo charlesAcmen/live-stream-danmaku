@@ -53,6 +53,8 @@ func InitHandlers() {
 	Register(model.ActionLike, func(c *Client, m *Manager, data []byte) {
 		// No data parsing needed for simple like
 		m.AddLike()
+		log.Printf("[HANDLER] User %s liked the stream", c.UserID)
+
 	})
-	log.Print("[HANDLER]Registered like action handler")
+	log.Print("[HANDLER]Registered like & action handler")
 }

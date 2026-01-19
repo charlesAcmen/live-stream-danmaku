@@ -30,6 +30,14 @@ func main() {
 		log.Fatal("[KAFKA CONSUMER]Failed to connect to database:", err)
 	}
 
+	// Auto Migration
+	// ensuring the table exists
+	err = db.AutoMigrate(&model.DanmakuMessage{})
+	if err != nil {
+		log.Fatal("[KAFKA CONSUMER]Migration failed:", err)
+	}
+	log.Println("[KAFKA CONSUMER] Table 'danmaku_messages' checked/created.")
+
 	// 2. init Kafka Consumer
 	config := sarama.NewConfig()
 	//errors in Kafka will be write in consumer.Errors() channel
@@ -93,16 +101,42 @@ func main() {
 	for {
 		select {
 		case msg := <-partitionConsumer.Messages():
-			var danmu model.DanmakuMessage
-			err := json.Unmarshal(msg.Value, &danmu)
-			log.Print("[KAFKA CONSUMER] Received message from partition consumer")
-			if err == nil {
-				log.Printf("[KAFKA CONSUMER] Appending danmaku %s", msg.Value)
-				buffer = append(buffer, &danmu)
-				if len(buffer) >= BatchSize {
-					flushDB()
+			log.Print("[KAFKA CONSUMER] Received raw message")
+
+			// 1. WsPacket
+			var packet model.WsPacket
+			if err := json.Unmarshal(msg.Value, &packet); err != nil {
+				log.Printf("[KAFKA CONSUMER] ❌ Failed to unmarshal packet: %v", err)
+				continue
+			}
+
+			// 2. handle only danmaku msgs
+			// skip other messages
+			if packet.Type == model.TypeDanmaku {
+				var danmu model.DanmakuMessage
+
+				// 3.Data -> DanmakuMessage
+				if err := json.Unmarshal(packet.Data, &danmu); err == nil {
+					log.Printf("[KAFKA CONSUMER] Appending danmaku: [%s] %s", danmu.Username, danmu.Content)
+					buffer = append(buffer, &danmu)
+
+					if len(buffer) >= BatchSize {
+						flushDB()
+					}
+				} else {
+					log.Printf("[KAFKA CONSUMER] ❌ Failed to unmarshal data body: %v", err)
 				}
 			}
+			// var danmu model.DanmakuMessage
+			// err := json.Unmarshal(msg.Value, &danmu)
+			// log.Print("[KAFKA CONSUMER] Received message from partition consumer")
+			// if err == nil {
+			// 	log.Printf("[KAFKA CONSUMER] Appending danmaku %s", msg.Value)
+			// 	buffer = append(buffer, &danmu)
+			// 	if len(buffer) >= BatchSize {
+			// 		flushDB()
+			// 	}
+			// }
 
 		case <-ticker.C:
 			flushDB()
