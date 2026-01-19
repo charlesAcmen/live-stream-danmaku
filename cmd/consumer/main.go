@@ -2,7 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
+	"go.uber.org/zap"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,6 +24,10 @@ const (
 )
 
 func main() {
+	logger.InitLogger("dev")
+	defer logger.Sync()
+
+
 	// 1. init db
 	dsn := "root:root@tcp(127.0.0.1:3306)/danmaku_db?charset=utf8mb4&parseTime=True&loc=Local"
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
