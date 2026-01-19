@@ -2,10 +2,13 @@ package ws
 
 import (
 	"context" // context is used to manage the lifecycle of the Redis client
+	"encoding/json"
 	"log"
 	"net/http"
+	"time" //broadcast stats data timer
 
-	"github.com/IBM/sarama"        //driver for apache Kafka clients lib
+	"github.com/IBM/sarama" //driver for apache Kafka clients lib
+	"github.com/charlesAcmen/livestream-danmaku/internal/model"
 	"github.com/gorilla/websocket" // Gorilla WebSocket is a WebSocket implementation for Go.
 	"github.com/redis/go-redis/v9"
 )
@@ -32,8 +35,10 @@ type Manager struct {
 }
 
 const (
-	RedisChannel = "chat_room"
-	KafkaTopic   = "danmaku_save_topic" // Topic name for Kafka
+	RedisChannel   = "chat_room"
+	KafkaTopic     = "danmaku_save_topic" // Topic name for Kafka
+	KeyOnlineCount = "room:1001:online"   // Key for online user count
+	KeyTotalLikes  = "room:1001:likes"    // Key for total likes
 )
 
 func NewManager() *Manager {
@@ -82,6 +87,11 @@ func NewManager() *Manager {
 func (m *Manager) Start() {
 	// Start a separate goroutine to subscribe to Redis messages.
 	go m.subscribeToRedis()
+	// 2. [NEW] Setup Ticker: Broadcast stats every 3 seconds
+	// This prevents broadcasting storm when likes increase rapidly.
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		// 1. New client connecting
@@ -89,6 +99,10 @@ func (m *Manager) Start() {
 			m.Clients[client] = true
 			log.Println(
 				"[MANAGER]New client ", client.UserID, " connected. Total:", len(m.Clients))
+			// Increment online count in Redis
+			m.RedisClient.Incr(context.Background(), KeyOnlineCount)
+			// Send recent history (cached in Redis) to the new user
+			// go m.sendRecentHistory(client)
 		// 2. Client disconnecting
 		case client := <-m.Unregister:
 			if _, ok := m.Clients[client]; ok {
@@ -96,6 +110,8 @@ func (m *Manager) Start() {
 				// close send channel to prevent GoRoutine leak
 				close(client.Send)
 				log.Println("[MANAGER]Client disconnected", client.UserID, ". Total:", len(m.Clients))
+				// Decrement online count in Redis
+				m.RedisClient.Decr(context.Background(), KeyOnlineCount)
 			}
 
 		case message := <-m.Broadcast:
@@ -132,6 +148,9 @@ func (m *Manager) Start() {
 			// 		delete(m.Clients, conn)
 			// 	}
 			// }
+		// --- Time to Broadcast Stats ---
+		case <-ticker.C:
+			m.broadcastStats()
 		}
 	}
 }
@@ -161,6 +180,44 @@ func (m *Manager) subscribeToRedis() {
 				close(client.Send)
 				delete(m.Clients, client)
 			}
+		}
+	}
+}
+
+// broadcastStats fetches stats from Redis and broadcasts to LOCAL clients.
+func (m *Manager) broadcastStats() {
+	log.Print("[MANAGER]BroadcastStats called")
+	ctx := context.Background()
+
+	// 1. Fetch data from Redis (Single Source of Truth)
+	online, _ := m.RedisClient.Get(ctx, KeyOnlineCount).Int64()
+	likes, _ := m.RedisClient.Get(ctx, KeyTotalLikes).Int64()
+
+	// 2. Wrap data into StatsData struct
+	stats := model.StatsData{
+		Online: online,
+		Likes:  likes,
+	}
+
+	// 3. Serialize payload
+	dataBytes, _ := json.Marshal(stats)
+
+	// 4. Wrap in WsPacket (Envelope)
+	packet := model.WsPacket{
+		Type: model.TypeStats, // 102
+		Data: dataBytes,
+	}
+	finalBytes, _ := json.Marshal(packet)
+
+	// 5. Send to all local clients
+	// We do NOT publish to Redis here, because every server instance has its own ticker
+	// and will fetch the same data from Redis.
+	for client := range m.Clients {
+		select {
+		case client.Send <- finalBytes:
+		default:
+			close(client.Send)
+			delete(m.Clients, client)
 		}
 	}
 }

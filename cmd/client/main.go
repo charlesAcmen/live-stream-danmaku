@@ -16,10 +16,10 @@ import (
 )
 
 // Helper struct to parse incoming JSON messages for display
-type IncomingMsg struct {
-	Username string `json:"username"`
-	Content  string `json:"content"`
-}
+// type IncomingMsg struct {
+// 	Username string `json:"username"`
+// 	Content  string `json:"content"`
+// }
 
 func sendPacket(c *websocket.Conn, msgType int, data interface{}) {
 	// 1.data to JSON bytes
@@ -135,10 +135,10 @@ func main() {
 				log.Println("已点赞 ❤️")
 
 			} else {
-				// === 发送弹幕 ===
-				// 类型：TypeDanmu (101)
-				// 数据：DanmuMessage {Content: text}
-				// 注意：客户端只需要填 Content，其他 ID/Time 由服务器填
+				// === Send Danmaku ===
+				// type:TypeDanmaku (101)
+				// notice：client only needs to fill in Content，other info including
+				// ID/Time is filled by server
 				msg := model.DanmakuMessage{
 					Content: text,
 				}
