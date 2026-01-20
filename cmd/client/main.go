@@ -5,14 +5,15 @@ import (
 	"encoding/json" //serilize and deserilize danmaku messages
 	"flag"          // command line arguments
 	"fmt"
-	"log"       // log to stderr
 	"net/url"   // parse url
 	"os"        // operating system functions
 	"os/signal" // handle signals
 	"time"
 
+	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"github.com/charlesAcmen/livestream-danmaku/internal/model"
 	"github.com/gorilla/websocket" // websocket library
+	"go.uber.org/zap"
 )
 
 // Helper struct to parse incoming JSON messages for display
@@ -33,7 +34,7 @@ func sendPacket(c *websocket.Conn, msgType int, data interface{}) {
 		Data: dataBytes,
 	}
 	if err := c.WriteJSON(packet); err != nil {
-		log.Println("[CLIENT]Failed to send:", err)
+		logger.Log.Error("[CLIENT]Failed to send", zap.Error(err))
 	}
 }
 
@@ -49,7 +50,7 @@ func main() {
 		*uid = fmt.Sprintf("User-%d", time.Now().UnixNano())
 	}
 
-	log.Printf("Connecting as %s to Room %s...", *uid, *room)
+	logger.Log.Info("Connecting...", zap.String("uid", *uid), zap.String("room", *room))
 
 	// 1. server address
 	//Scheme: protocol, Host: server address, Path: route
@@ -64,14 +65,14 @@ func main() {
 	u.RawQuery = q.Encode()
 
 	//ws://localhost:8080/ws?uid=1001&name=1001&room=1001
-	log.Printf("[CLIENT]Connecting to: %s", u.String())
+	logger.Log.Info("[CLIENT]Connecting to...", zap.String("url", u.String()))
 
 	// 2. initiate connection (handshake)
 	// Dial is like making a phone call, send a HTTP request with a header with upgrade:websocket
 	// returns a conn (connection object) when connected
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatal("[CLIENT]connecting failed", err)
+		logger.Log.Fatal("[CLIENT]connecting failed", zap.Error(err))
 	}
 	defer c.Close()
 
@@ -82,7 +83,7 @@ func main() {
 		for {
 			_, message, err := c.ReadMessage()
 			if err != nil {
-				log.Println("[CLIENT]disconnected when receiving message", err)
+				logger.Log.Error("[CLIENT]disconnected when receiving message", zap.Error(err))
 				return
 			}
 
@@ -97,21 +98,15 @@ func main() {
 			case model.TypeDanmaku:
 				var danmu model.DanmakuMessage
 				json.Unmarshal(packet.Data, &danmu)
-				log.Printf("\r[Live Chat][%s]: %s\n", danmu.Username, danmu.Content)
+				logger.Log.Info("[Live Chat]", zap.String("username", danmu.Username), zap.String("content", danmu.Content))
 
 			case model.TypeStats:
 				var stats model.StatsData
 				json.Unmarshal(packet.Data, &stats)
-				log.Printf("\r[STATS] Online: %d | Likes: %d\n", stats.Online, stats.Likes)
+				logger.Log.Info("[STATS]", zap.Int("Online", int(stats.Online)), zap.Int("Likes", int(stats.Likes)))
 			}
 
-			// Parse the JSON message to display nicely
-			// var msgData IncomingMsg
-			// json.Unmarshal(message, &msgData)
-			// log.Printf("[Live Chat][%s]: %s\n", msgData.Username, msgData.Content)
-			// // print received danmaku
-			// // log.Printf("[Live Chat]: %s\n", message)
-			log.Printf("[CLIENT]Please input:")
+			logger.Log.Info("[CLIENT]Please input:")
 		}
 	}()
 
@@ -119,8 +114,8 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
-	log.Println("[CLIENT]Connected Successfully!Now let's chat")
-	log.Println("[CLIENT]Please input: ")
+	logger.Log.Info("[CLIENT]Connected Successfully! Now let's chat")
+	logger.Log.Info("[CLIENT]Please input:")
 	scanner := bufio.NewScanner(os.Stdin)
 
 	// 5.start a goroutine to handle keyboard input, prevent select from blocking
@@ -132,7 +127,7 @@ func main() {
 				// ActionLike (103)
 				// data:empty
 				sendPacket(c, model.ActionLike, nil)
-				log.Println("已点赞 ❤️")
+				logger.Log.Info("已点赞 ❤️")
 
 			} else {
 				// === Send Danmaku ===
@@ -146,7 +141,7 @@ func main() {
 			}
 			// err := c.WriteMessage(websocket.TextMessage, []byte(text))
 			// if err != nil {
-			// 	log.Println("[CLIENT]Failed to send message:", err)
+			// 	logger.Log.Println("[CLIENT]Failed to send message:", err)
 			// 	return
 			// }
 		}
@@ -159,10 +154,10 @@ func main() {
 			return
 		case <-interrupt:
 			// received Ctrl+C, send close message to server
-			log.Println("[CLIENT]Closing connection...")
+			logger.Log.Info("[CLIENT]Closing connection...")
 			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
-				log.Println("[CLIENT]Failed to Close connection:", err)
+				logger.Log.Info("[CLIENT]Failed to Close connection", zap.Error(err))
 			}
 			return
 		}
