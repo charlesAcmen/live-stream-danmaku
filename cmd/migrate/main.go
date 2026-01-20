@@ -1,9 +1,9 @@
 package main
 
 import (
-	"log"
-
+	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"github.com/charlesAcmen/livestream-danmaku/internal/model"
+	"go.uber.org/zap"
 
 	"gorm.io/driver/mysql" //tells GORM to use MySQL driver
 	"gorm.io/gorm"
@@ -24,15 +24,15 @@ func main() {
 	// lazy open:doesnot necessarily establish tcp connection immediately
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatal("[MIGRATE]Failed to connect to database:", err)
+		logger.Log.Fatal("[MIGRATE]Failed to connect to database:", zap.Error(err))
 	}
 
 	// 2. Migrate automatically
 	// GORM will create tables in the database automatically based on the structure of model.DanmuMessage
 	err = db.AutoMigrate(&model.DanmakuMessage{})
 	if err != nil {
-		log.Fatal("[MIGRATE]Migration failed:", err)
+		logger.Log.Fatal("[MIGRATE]Migration failed:", zap.Error(err))
 	}
 
-	log.Println("[MIGRATE]🎉 Database migration successful! Table 'danmu_messages' created.")
+	logger.Log.Info("[MIGRATE]🎉 Database migration successful! Table 'danmu_messages' created.")
 }

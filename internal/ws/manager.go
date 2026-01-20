@@ -3,14 +3,15 @@ package ws
 import (
 	"context" // context is used to manage the lifecycle of the Redis client
 	"encoding/json"
-	"log"
 	"net/http"
 	"time" //broadcast stats data timer
 
 	"github.com/IBM/sarama" //driver for apache Kafka clients lib
+	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"github.com/charlesAcmen/livestream-danmaku/internal/model"
 	"github.com/gorilla/websocket" // Gorilla WebSocket is a WebSocket implementation for Go.
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 // Manager is responsible for managing all websocket clients and the Redis connection
@@ -70,7 +71,7 @@ func NewManager() *Manager {
 	if err != nil {
 		// In production, we might want to retry or fail gracefully.
 		// For now, we panic because without Kafka, persistence fails.
-		log.Panicf("[MANAGER]Failed to start Kafka producer: %v", err)
+		logger.Log.Panic("[MANAGER]Failed to start Kafka producer", zap.Error(err))
 	}
 
 	return &Manager{
@@ -97,8 +98,8 @@ func (m *Manager) Start() {
 		// 1. New client connecting
 		case client := <-m.Register:
 			m.Clients[client] = true
-			log.Println(
-				"[MANAGER]New client ", client.UserID, " connected. Total:", len(m.Clients))
+			logger.Log.Info(
+				"[MANAGER] New client connected", zap.String("userID", client.UserID), zap.Int("total", len(m.Clients)))
 			// Increment online count in Redis
 			m.RedisClient.Incr(context.Background(), KeyOnlineCount)
 			// Send recent history (cached in Redis) to the new user
@@ -109,7 +110,11 @@ func (m *Manager) Start() {
 				delete(m.Clients, client)
 				// close send channel to prevent GoRoutine leak
 				close(client.Send)
-				log.Println("[MANAGER]Client disconnected", client.UserID, ". Total:", len(m.Clients))
+				logger.Log.Info(
+					"[MANAGER] Client disconnected",
+					zap.String("userID", client.UserID),
+					zap.Int("total", len(m.Clients)),
+				)
 				// Decrement online count in Redis
 				m.RedisClient.Decr(context.Background(), KeyOnlineCount)
 			}
@@ -118,9 +123,9 @@ func (m *Manager) Start() {
 			// Publish the message to the "RedisChannel" in Redis.
 			err := m.RedisClient.Publish(context.Background(), RedisChannel, message).Err()
 			if err != nil {
-				log.Printf("[MANAGER]Error publishing to Redis: %v", err)
+				logger.Log.Error("[MANAGER]Error publishing to Redis: %v", zap.Error(err))
 			} else {
-				log.Printf("[MANAGER]Message published to Redis: %s", message)
+				logger.Log.Info("[MANAGER]Message published to Redis", zap.ByteString("message", message))
 			}
 			// Produce to Kafka (For Storage/Persistence)
 			// 'message' is already a JSON bytes containing user info & content.
@@ -134,7 +139,7 @@ func (m *Manager) Start() {
 			// partition,offset,err
 			_, _, err = m.KafkaProducer.SendMessage(kafkaMsg)
 			if err != nil {
-				log.Printf("[MANAGER]Kafka Produce Error: %v", err)
+				logger.Log.Error("[MANAGER]Kafka Produce Error", zap.Error(err))
 				// Note: In real world, we might want to save to a local file if Kafka fails (Fallback).
 			}
 			// for conn := range m.Clients {
@@ -186,7 +191,7 @@ func (m *Manager) subscribeToRedis() {
 
 // broadcastStats fetches stats from Redis and broadcasts to LOCAL clients.
 func (m *Manager) broadcastStats() {
-	log.Print("[MANAGER]BroadcastStats called")
+	logger.Log.Info("[MANAGER]BroadcastStats called")
 	ctx := context.Background()
 
 	// 1. Fetch data from Redis (Single Source of Truth)
@@ -261,7 +266,7 @@ func WsHandler(manager *Manager, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	//Upgrade:Hijack tcp socket connection to upgrade to WebSocket connection
 	if err != nil {
-		log.Println("[SERVER]Upgrade error:", err)
+		logger.Log.Error("[SERVER]Upgrade error:", zap.Error(err))
 		return
 	}
 

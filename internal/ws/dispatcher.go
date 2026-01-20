@@ -1,7 +1,8 @@
 package ws
 
 import (
-	"log"
+	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
+	"go.uber.org/zap"
 )
 
 type MessageHandler func(client *Client, manager *Manager, data []byte)
@@ -18,6 +19,6 @@ func Dispatch(client *Client, manager *Manager, msgType int, data []byte) {
 	if handler, ok := handlerMap[msgType]; ok {
 		handler(client, manager, data)
 	} else {
-		log.Printf("[DISPATCHER]Unknown message type: %d", msgType)
+		logger.Log.Warn("[DISPATCHER]Unknown message type", zap.Int("msgType", msgType))
 	}
 }

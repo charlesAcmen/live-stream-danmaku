@@ -2,10 +2,11 @@ package ws
 
 import (
 	"encoding/json"
-	"log"
 
+	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"github.com/charlesAcmen/livestream-danmaku/internal/model" //database structures
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 type Client struct {
@@ -34,7 +35,7 @@ func (c *Client) ReadPump(manager *Manager) {
 				websocket.CloseGoingAway,         // 1001: browser navigation leave/refreshing
 				websocket.CloseAbnormalClosure) { //1006:connection closed abnormally
 				//log when error does not belong to reasons mentioned above
-				log.Printf("[CLIENT]error: %v", err)
+				logger.Log.Error("[CLIENT]error: %v", zap.Error(err))
 			}
 			break // if read error, break the loop
 		}
@@ -42,7 +43,7 @@ func (c *Client) ReadPump(manager *Manager) {
 		// 2. Parse the Envelope (WsPacket)
 		var packet model.WsPacket
 		if err := json.Unmarshal(messageBytes, &packet); err != nil {
-			log.Print("[CLIENT]Invalid JSON format")
+			logger.Log.Error("[CLIENT]Invalid JSON format")
 			continue
 		}
 
