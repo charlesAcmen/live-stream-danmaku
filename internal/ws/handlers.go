@@ -71,5 +71,5 @@ func InitHandlers() {
 		)
 
 	})
-	logger.Log.Info("Registered Handler: Like/Action")
+	logger.Log.Info("[SERVER HANDLER]Registered Handler: Like/Action")
 }

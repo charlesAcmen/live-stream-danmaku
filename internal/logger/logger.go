@@ -24,6 +24,8 @@ func InitLogger(env string) {
 		// Development: Console format, Debug level, colored
 		config = zap.NewDevelopmentConfig()
 		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		//Remove timestamp in dev mode
+		config.EncoderConfig.TimeKey = ""
 	}
 
 	var err error
