@@ -32,7 +32,8 @@ type Manager struct {
 	// RedisClient: the connection to the Redis server.
 	RedisClient *redis.Client
 
-	KafkaProducer sarama.SyncProducer
+	// KafkaProducer sarama.SyncProducer
+	KafkaProducer sarama.AsyncProducer
 }
 
 const (
@@ -61,18 +62,35 @@ func NewManager() *Manager {
 	//   - WaitForAll: all follower synced
 	config.Producer.RequiredAcks = sarama.WaitForAll
 	// We need to return success info to avoid errors in SyncProducer.
-	config.Producer.Return.Successes = true
+	// config.Producer.Return.Successes = true
+
+	// performance optimization:no return for successful msgs(reduce channel overhead)
+	config.Producer.Return.Successes = false
+	//return msgs with error,otherwise have no ability to monitor KAFKA
+	config.Producer.Return.Errors = true
 	// multiple partitions in one topic of Kafka
 	// Use Random partitioner to distribute messages evenly in all partitions
 	config.Producer.Partitioner = sarama.NewRandomPartitioner
 
 	// Connect to Kafka (running on localhost:9092 (in .yaml) via Docker)
-	producer, err := sarama.NewSyncProducer([]string{"localhost:9092"}, config)
+	// producer, err := sarama.NewSyncProducer([]string{"localhost:9092"}, config)
+	producer, err := sarama.NewAsyncProducer([]string{"localhost:9092"}, config)
 	if err != nil {
 		// In production, we might want to retry or fail gracefully.
 		// For now, we panic because without Kafka, persistence fails.
 		logger.Log.Panic("[MANAGER]Failed to start Kafka producer", zap.Error(err))
 	}
+
+	//listen from KAFKA producer error channel
+	//if not doing so,errors will fill in channel till blocking producer
+	go func() {
+		for err := range producer.Errors() {
+			logger.Log.Error("[MANAGER] Kafka Async Write Error",
+				zap.Error(err.Err),
+				zap.Any("msg", err.Msg),
+			)
+		}
+	}()
 
 	return &Manager{
 		Register:      make(chan *Client),
@@ -135,13 +153,26 @@ func (m *Manager) Start() {
 				Value: sarama.ByteEncoder(message),
 			}
 
+			select {
+			case m.KafkaProducer.Input() <- kafkaMsg:
+			case <-m.KafkaProducer.Errors():
+				logger.Log.Warn("[MANAGER] Kafka error channel read during send")
+
+			default:
+				// [熔断机制]
+				// 如果 Kafka 挂了或者网络太慢，导致本地 buffer 满了，
+				// 这里会直接丢弃消息，而不是卡死 Manager。
+				// 保护了实时弹幕（Redis）不受影响。
+				logger.Log.Warn("[MANAGER] Kafka buffer full, dropping message to prevent blocking")
+			}
+
 			// Send to Kafka (Sync)
 			// partition,offset,err
-			_, _, err = m.KafkaProducer.SendMessage(kafkaMsg)
-			if err != nil {
-				logger.Log.Error("[MANAGER]Kafka Produce Error", zap.Error(err))
-				// Note: In real world, we might want to save to a local file if Kafka fails (Fallback).
-			}
+			// _, _, err = m.KafkaProducer.SendMessage(kafkaMsg)
+			// if err != nil {
+			// 	logger.Log.Error("[MANAGER]Kafka Produce Error", zap.Error(err))
+			// 	// Note: In real world, we might want to save to a local file if Kafka fails (Fallback).
+			// }
 			// for conn := range m.Clients {
 			// 	select {
 			// 	case conn.Send <- message:

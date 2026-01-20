@@ -39,6 +39,7 @@ var targetHosts = []string{
 
 func main() {
 	// 1. Parse command line flags
+	// maximum capacity is 56,460 because of non-infinite number of ports on this laptop
 	clients := flag.Int("c", 200000, "Number of concurrent clients")
 	rate := flag.Duration("r", 3600*time.Second, "Message sending interval per client")
 	flag.Parse()
