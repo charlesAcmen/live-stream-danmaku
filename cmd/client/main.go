@@ -39,6 +39,9 @@ func sendPacket(c *websocket.Conn, msgType int, data interface{}) {
 }
 
 func main() {
+	logger.InitLogger("dev")
+	defer logger.Sync()
+
 	// Define command-line flag for the target server port.
 	port := flag.String("port", "8080", "server port to connect to")
 	uid := flag.String("uid", "", "user id (random if empty)")
@@ -92,7 +95,7 @@ func main() {
 			if err := json.Unmarshal(message, &packet); err != nil {
 				continue
 			}
-			// 2.
+			// 2.unmarshal based on type
 			switch packet.Type {
 
 			case model.TypeDanmaku:

@@ -72,7 +72,8 @@ func NewManager() *Manager {
 	// Use Random partitioner to distribute messages evenly in all partitions
 	config.Producer.Partitioner = sarama.NewRandomPartitioner
 
-	// Connect to Kafka (running on localhost:9092 (in .yaml) via Docker)
+	// Connect to Kafka (running on localhost:9092 (in .yaml) via Docker)1
+	
 	// producer, err := sarama.NewSyncProducer([]string{"localhost:9092"}, config)
 	producer, err := sarama.NewAsyncProducer([]string{"localhost:9092"}, config)
 	if err != nil {
