@@ -39,7 +39,7 @@ var targetHosts = []string{
 
 func main() {
 	// 1. Parse command line flags
-	clients := flag.Int("c", 1000, "Number of concurrent clients")
+	clients := flag.Int("c", 2000, "Number of concurrent clients")
 	rate := flag.Duration("r", 3600*time.Second, "Message sending interval per client")
 	flag.Parse()
 
@@ -146,7 +146,6 @@ func runBot(host string, id int, interval time.Duration) {
 			_, _, err := c.ReadMessage()
 			if err != nil {
 				atomic.AddInt64(&errorCount, 1)
-				c.Close() 
 				return
 			}
 			atomic.AddInt64(&msgRecvCount, 1)
