@@ -15,6 +15,7 @@ import (
 	"github.com/charlesAcmen/livestream-danmaku/internal/consumer"
 	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"github.com/charlesAcmen/livestream-danmaku/internal/model"
+	"github.com/charlesAcmen/livestream-danmaku/internal/repo"
 )
 
 const (
@@ -67,7 +68,8 @@ func main() {
 
 	// 5. prepare Context and Handler
 	ctx, cancel := context.WithCancel(context.Background())
-	handler := consumer.NewDanmakuHandler(db, BatchSize)
+	messageRepo := repo.NewMessageRepo(db)
+	handler := consumer.NewDanmakuHandler(messageRepo, BatchSize)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
