@@ -8,23 +8,23 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"github.com/charlesAcmen/livestream-danmaku/internal/model"
+	"github.com/charlesAcmen/livestream-danmaku/internal/repo"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 // DanmakuHandler inherits from sarama.ConsumerGroupHandler interface
 // collect in batch、flush on clock、push to db
 type DanmakuHandler struct {
-	db        *gorm.DB
+	repo      *repo.MessageRepo
 	buffer    []*model.DanmakuMessage
 	batchSize int
 	mu        sync.Mutex // protect buffer
 }
 
 // NewDanmakuHandler
-func NewDanmakuHandler(db *gorm.DB, batchSize int) *DanmakuHandler {
+func NewDanmakuHandler(r *repo.MessageRepo, batchSize int) *DanmakuHandler {
 	return &DanmakuHandler{
-		db:        db,
+		repo:      r,
 		buffer:    make([]*model.DanmakuMessage, 0, batchSize),
 		batchSize: batchSize,
 	}
@@ -123,7 +123,7 @@ func (h *DanmakuHandler) flushDB() {
 	logger.Log.Debug("[KAFKA HANDLER]Flushing data to DB", zap.Int("count", count))
 
 	// GORM
-	if err := h.db.CreateInBatches(h.buffer, 100).Error; err != nil {
+	if err := h.repo.CreateInBatches(h.buffer); err != nil {
 		logger.Log.Error("[KAFKA HANDLER]Insert DB Failed", zap.Error(err))
 		// 工业级思考：这里如果失败了，buffer 里的数据可能会丢失。
 		// 进阶做法是重试，或者写入本地文件兜底。目前先打印 Error。
