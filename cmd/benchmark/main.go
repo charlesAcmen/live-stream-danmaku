@@ -39,7 +39,7 @@ var targetHosts = []string{
 
 func main() {
 	// 1. Parse command line flags
-	clients := flag.Int("c", 2000, "Number of concurrent clients")
+	clients := flag.Int("c", 200000, "Number of concurrent clients")
 	rate := flag.Duration("r", 3600*time.Second, "Message sending interval per client")
 	flag.Parse()
 
@@ -62,8 +62,8 @@ func main() {
 	wg.Add(*clients)
 
 	// Control the startup rate to avoid "connection refused" or OS limits
-	// Start 100 clients per second
-	rampUpTicker := time.NewTicker(10 * time.Millisecond)
+	// Start 500 clients per second
+	rampUpTicker := time.NewTicker(2 * time.Millisecond)
 	defer rampUpTicker.Stop()
 
 	for i := 0; i < *clients; i++ {
@@ -111,9 +111,12 @@ func monitor() {
 		lastSent = currSent
 		lastRecv = currRecv
 
-		// Use fmt for stats to keep it distinct from zap logs
-		fmt.Printf("\r[STATS] Conns: %d | Sent: %d/s | Recv: %d/s | Errs: %d",
-			currConn, sentRate, recvRate, currErr)
+		logger.Log.Info("[STATS]",
+			zap.Int64("Conns", currConn),
+			zap.Int64("Sent/s", sentRate),
+			zap.Int64("Recv/s", recvRate),
+			zap.Int64("Errs", currErr),
+		)
 	}
 }
 
@@ -146,6 +149,7 @@ func runBot(host string, id int, interval time.Duration) {
 			_, _, err := c.ReadMessage()
 			if err != nil {
 				atomic.AddInt64(&errorCount, 1)
+				logger.Log.Warn("[BENCHMARK] Read loop exited due to error", zap.Int("bot_id", id), zap.Error(err))
 				return
 			}
 			atomic.AddInt64(&msgRecvCount, 1)
