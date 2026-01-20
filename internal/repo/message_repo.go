@@ -20,9 +20,12 @@ func NewMessageRepo(db *gorm.DB) *MessageRepo {
 }
 
 // CreateInBatches saves multiple messages efficiently.
+// This encapsulates the GORM logic so the Consumer doesn't need to know about GORM directly.
 // Used by the Kafka Consumer.
 func (r *MessageRepo) CreateInBatches(msgs []*model.DanmakuMessage) error {
-	return r.db.CreateInBatches(msgs, len(msgs)).Error
+	// Hardcode 100 here.
+	// Even if msgs has 5000 items, GORM will split it into 50 chunks of 100.
+	return r.db.CreateInBatches(msgs, 100).Error
 }
 
 // GetPlayBackDanmaku fetches messages for video playback
