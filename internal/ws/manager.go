@@ -73,7 +73,7 @@ func NewManager() *Manager {
 	config.Producer.Partitioner = sarama.NewRandomPartitioner
 
 	// Connect to Kafka (running on localhost:9092 (in .yaml) via Docker)1
-	
+
 	// producer, err := sarama.NewSyncProducer([]string{"localhost:9092"}, config)
 	producer, err := sarama.NewAsyncProducer([]string{"localhost:9092"}, config)
 	if err != nil {
@@ -109,7 +109,7 @@ func (m *Manager) Start() {
 	go m.subscribeToRedis()
 	// 2. [NEW] Setup Ticker: Broadcast stats every 3 seconds
 	// This prevents broadcasting storm when likes increase rapidly.
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -257,6 +257,8 @@ func (m *Manager) broadcastStats() {
 			delete(m.Clients, client)
 		}
 	}
+	//takes only a few ms to broadcast to all clients
+
 }
 
 // AddLike increments the like counter in Redis atomically.
