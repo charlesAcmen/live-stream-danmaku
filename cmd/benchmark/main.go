@@ -8,8 +8,10 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"sync"
-	"sync/atomic"
+	"sync"        //sync.WaitGroup wait for all done
+	"sync/atomic" //data race,memory visibility,better than sync.Mutex
+
+	//so fast because of utilizing CPU hardware insturctions
 	"syscall"
 	"time"
 
@@ -38,7 +40,7 @@ var targetHosts = []string{
 func main() {
 	// 1. Parse command line flags
 	clients := flag.Int("c", 1000, "Number of concurrent clients")
-	rate := flag.Duration("r", 5*time.Second, "Message sending interval per client")
+	rate := flag.Duration("r", 3600*time.Second, "Message sending interval per client")
 	flag.Parse()
 
 	// 2. Initialize Logger (Development mode for colored output)
@@ -68,6 +70,7 @@ func main() {
 		<-rampUpTicker.C // Wait a bit before starting next client
 
 		go func(id int) {
+			//decr counter by 1
 			defer wg.Done()
 
 			// Round-Robin Load Balancing
@@ -77,6 +80,8 @@ func main() {
 			runBot(host, id, *rate)
 		}(i)
 	}
+
+	wg.Wait()
 
 	// 5. Handle Shutdown Signal (Ctrl+C)
 	sigChan := make(chan os.Signal, 1)
@@ -140,6 +145,8 @@ func runBot(host string, id int, interval time.Duration) {
 		for {
 			_, _, err := c.ReadMessage()
 			if err != nil {
+				atomic.AddInt64(&errorCount, 1)
+				c.Close() 
 				return
 			}
 			atomic.AddInt64(&msgRecvCount, 1)
