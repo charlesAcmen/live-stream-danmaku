@@ -57,7 +57,12 @@ func main() {
 	go manager.Start()
 
 	// 4. Init Router
-	r := gin.Default()
+	// r := gin.Default()
+	//blank slate
+	r := gin.New()
+	// Manually attach Recovery middleware (Critical for preventing server crash on panic)
+	r.Use(gin.Recovery())
+	//leave Logger alone
 
 	// HTTP API Group
 	// Group: RESTful API v1
