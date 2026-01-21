@@ -24,17 +24,13 @@ type Manager struct {
 	Unregister chan *Client
 
 	// Broadcast channel: when a new message is to be broadcast, send the []byte to the channel
-	Broadcast chan []byte
+	Broadcast chan *model.WsPacket
 
 	// Rooms maps RoomID to a set of Clients in that room
 	// map[RoomID]map[ClientPointer]exists
 	Rooms map[string]map[*Client]bool
+	mu    sync.RWMutex // Protects the Rooms map
 
-	// Keep track of connected clients
-	// key is client pointer, value is bool (true means online)
-	// Clients map[*Client]bool
-
-	mu sync.RWMutex // Protects the Rooms map
 	//Read and write mutex lock
 	//RLock() when multiple routines read room map to broadcast simultaneously,
 	//non blocking
@@ -47,16 +43,17 @@ type Manager struct {
 }
 
 const (
-	KafkaTopic = "danmaku_save_topic" // Topic name for Kafka
+	KafkaTopic        = "danmaku_save_topic" // Topic name for Kafka
+	BroadCastInterVal = 3 * time.Second
 )
 
 func NewManager() *Manager {
-	rdb := infra.InitRedis()
+	rdb := infra.InitRedisClient()
 	producer := infra.InitKafkaProducer()
 	return &Manager{
 		Register:      make(chan *Client),
 		Unregister:    make(chan *Client),
-		Broadcast:     make(chan []byte),
+		Broadcast:     make(chan *model.WsPacket, 1024), // Buffer to handle spikes
 		Rooms:         make(map[string]map[*Client]bool),
 		RedisClient:   rdb,
 		KafkaProducer: producer,
@@ -67,7 +64,7 @@ func NewManager() *Manager {
 func (m *Manager) Start() {
 	logger.Log.Info("[MANAGER] Multi-room Manager started")
 
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := time.NewTicker(BroadCastInterVal)
 	defer ticker.Stop()
 
 	for {
@@ -76,8 +73,8 @@ func (m *Manager) Start() {
 			m.handleRegister(client)
 		case client := <-m.Unregister:
 			m.handleUnregister(client)
-		case message := <-m.Broadcast:
-			m.publishToRedis(message)
+		case packet := <-m.Broadcast:
+			m.publishToRedis(packet)
 			// Produce to Kafka (For Storage/Persistence)
 			// 'message' is already a JSON bytes containing user info & content.
 			kafkaMsg := &sarama.ProducerMessage{
@@ -98,25 +95,6 @@ func (m *Manager) Start() {
 				// 保护了实时弹幕（Redis）不受影响。
 				logger.Log.Warn("[MANAGER] Kafka buffer full, dropping message to prevent blocking")
 			}
-
-			// Send to Kafka (Sync)
-			// partition,offset,err
-			// _, _, err = m.KafkaProducer.SendMessage(kafkaMsg)
-			// if err != nil {
-			// 	logger.Log.Error("[MANAGER]Kafka Produce Error", zap.Error(err))
-			// 	// Note: In real world, we might want to save to a local file if Kafka fails (Fallback).
-			// }
-			// for conn := range m.Clients {
-			// 	select {
-			// 	case conn.Send <- message:
-			// 		// successfully sent
-			// 	default:
-			// 		// if failed to send (receiver buffer is full), kick the client to prevent blocking the server
-			// 		// this is a self-protection mechanism for high-concurrency systems
-			// 		close(conn.Send)
-			// 		delete(m.Clients, conn)
-			// 	}
-			// }
 		case <-ticker.C:
 			m.broadcastStats()
 		}
@@ -191,45 +169,7 @@ func (m *Manager) publishToRedis(message []byte) {
 			zap.String("room", roomID),
 			zap.ByteString("message", message))
 	}
-	
-}
 
-// subscribeToRoom listens to a specific Redis channel for a room
-func (m *Manager) subscribeToRoom(roomID string) {
-	// Channel name: e.g., "room:1001:pubsub"
-	channelName := fmt.Sprintf("room:%s:pubsub", roomID)
-	//context.Background(): a default context that never cancels, never expires, and has no values.
-	//or context.WithTimeOut(...,3*time.Second)
-	pubsub := m.RedisClient.Subscribe(context.Background(), channelName)
-	defer pubsub.Close()
-	// Go channel to receive Redis messages(read only)
-	ch := pubsub.Channel()
-
-	// Loop over messages received from Redis.
-	for msg := range ch {
-		// msg.Payload is the JSON string
-		// Now we broadcast this message to all local clients in this room.
-		m.broadcastToLocalRoom(roomID, []byte(msg.Payload))
-	}
-}
-
-func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
-	//read lock
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if clients, ok := m.Rooms[roomID]; ok {
-		for client := range clients {
-			select {
-			case client.Send <- payload:
-			default:
-				// If client buffer is full, we don't block the whole room
-				//close and remove to prevent blocking.
-				close(client.Send)
-				delete(clients, client)
-			}
-		}
-	}
 }
 
 // broadcastStats fetches stats from Redis and broadcasts to LOCAL clients.
@@ -270,6 +210,44 @@ func (m *Manager) broadcastStats() {
 	}
 	//takes only a few ms to broadcast to all clients
 
+}
+
+// subscribeToRoom listens to a specific Redis channel for a room
+func (m *Manager) subscribeToRoom(roomID string) {
+	// Channel name: e.g., "room:1001:pubsub"
+	channelName := fmt.Sprintf("room:%s:pubsub", roomID)
+	//context.Background(): a default context that never cancels, never expires, and has no values.
+	//or context.WithTimeOut(...,3*time.Second)
+	pubsub := m.RedisClient.Subscribe(context.Background(), channelName)
+	defer pubsub.Close()
+	// Go channel to receive Redis messages(read only)
+	ch := pubsub.Channel()
+
+	// Loop over messages received from Redis.
+	for msg := range ch {
+		// msg.Payload is the JSON string
+		// Now we broadcast this message to all local clients in this room.
+		m.broadcastToLocalRoom(roomID, []byte(msg.Payload))
+	}
+}
+
+func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
+	//read lock
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if clients, ok := m.Rooms[roomID]; ok {
+		for client := range clients {
+			select {
+			case client.Send <- payload:
+			default:
+				// If client buffer is full, we don't block the whole room
+				//close and remove to prevent blocking.
+				close(client.Send)
+				delete(clients, client)
+			}
+		}
+	}
 }
 
 // AddLike increments the like counter in Redis atomically.

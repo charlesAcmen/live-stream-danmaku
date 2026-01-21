@@ -45,10 +45,7 @@ func InitHandlers() {
 			Type: model.TypeDanmaku, // 101
 			Data: dataBytes,
 		}
-
-		// D. send the JSON bytes to Manager's broadcast channel
-		finalBytes, _ := json.Marshal(outgoingPacket)
-		m.Broadcast <- finalBytes
+		m.Broadcast <- &outgoingPacket
 		logger.Log.Debug("[SERVER HANDLER]Danmaku processed",
 			zap.Uint64("uid", c.UserID),
 			zap.String("room", c.RoomID),

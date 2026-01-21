@@ -2,7 +2,7 @@ package infra
 
 import "github.com/redis/go-redis/v9"
 
-func InitRedis() *redis.Client {
+func InitRedisClient() *redis.Client {
 	// Initialize Redis client.
 	// Ensure Redis is running on localhost:6379 via Docker.
 	// Lazy loading: only create Redis client when first time trying to contact
