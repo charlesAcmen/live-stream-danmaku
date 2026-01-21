@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time" //broadcast stats data timer
 
 	"github.com/IBM/sarama" //driver for apache Kafka clients lib
@@ -25,9 +26,15 @@ type Manager struct {
 	// Broadcast channel: when a new message is to be broadcast, send the []byte to the channel
 	Broadcast chan []byte
 
+	// Rooms maps RoomID to a set of Clients in that room
+	// map[RoomID]map[ClientPointer]exists
+	Rooms map[string]map[*Client]bool
+
 	// Keep track of connected clients
 	// key is client pointer, value is bool (true means online)
-	Clients map[*Client]bool
+	// Clients map[*Client]bool
+
+	mu sync.RWMutex // Protects the Rooms map
 
 	// RedisClient: the connection to the Redis server.
 	RedisClient *redis.Client
@@ -37,9 +44,8 @@ type Manager struct {
 }
 
 const (
-	RedisChannel   = "chat_room"
-	KafkaTopic     = "danmaku_save_topic" // Topic name for Kafka
-	KeyOnlineCount = "room:1001:online"   // Key for online user count
+	RedisChannel = "chat_redis"
+	KafkaTopic   = "danmaku_save_topic" // Topic name for Kafka
 )
 
 func NewManager() *Manager {
@@ -52,51 +58,15 @@ func NewManager() *Manager {
 		DB:       0,  // use default DB
 	})
 
-	// 2. Init Kafka Producer
-	// Configure Sarama settings
-	config := sarama.NewConfig()
-	// We must wait for the acknowledgment from Kafka to ensure data is safe.
-	//   - NoResponse
-	//   - WaitForLocal: Leader returns OK after receiving
-	//   - WaitForAll: all follower synced
-	config.Producer.RequiredAcks = sarama.WaitForAll
-	// We need to return success info to avoid errors in SyncProducer.
-	// config.Producer.Return.Successes = true
+	
 
-	// performance optimization:no return for successful msgs(reduce channel overhead)
-	config.Producer.Return.Successes = false
-	//return msgs with error,otherwise have no ability to monitor KAFKA
-	config.Producer.Return.Errors = true
-	// multiple partitions in one topic of Kafka
-	// Use Random partitioner to distribute messages evenly in all partitions
-	config.Producer.Partitioner = sarama.NewRandomPartitioner
-
-	// Connect to Kafka (running on localhost:9092 (in .yaml) via Docker)1
-
-	// producer, err := sarama.NewSyncProducer([]string{"localhost:9092"}, config)
-	producer, err := sarama.NewAsyncProducer([]string{"localhost:9092"}, config)
-	if err != nil {
-		// In production, we might want to retry or fail gracefully.
-		// For now, we panic because without Kafka, persistence fails.
-		logger.Log.Panic("[MANAGER]Failed to start Kafka producer", zap.Error(err))
-	}
-
-	//listen from KAFKA producer error channel
-	//if not doing so,errors will fill in channel till blocking producer
-	go func() {
-		for err := range producer.Errors() {
-			logger.Log.Error("[MANAGER] Kafka Async Write Error",
-				zap.Error(err.Err),
-				zap.Any("msg", err.Msg),
-			)
-		}
-	}()
+	
 
 	return &Manager{
 		Register:      make(chan *Client),
 		Unregister:    make(chan *Client),
 		Broadcast:     make(chan []byte),
-		Clients:       make(map[*Client]bool),
+		Rooms:         make(map[string]map[*Client]bool),
 		RedisClient:   rdb,
 		KafkaProducer: producer,
 	}
