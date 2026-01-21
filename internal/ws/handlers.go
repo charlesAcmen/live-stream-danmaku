@@ -42,7 +42,7 @@ func InitHandlers() {
 		// C. Wrap in outgoing Envelope
 		dataBytes, _ := json.Marshal(fullMsg)
 		outgoingPacket := model.WsPacket{
-			Type:   model.TypeDanmaku, // 101
+			Type:   model.TypeDanmaku,
 			RoomID: c.RoomID,
 			Data:   dataBytes,
 		}
@@ -58,14 +58,31 @@ func InitHandlers() {
 
 	// 2. Handle Like Logic
 	Register(model.ActionLike, func(c *Client, m *Manager, data []byte) {
-		// No data parsing needed for simple like
-		// Update the like counter in Redis (via Manager)
-		m.AddLike(c.RoomID)
-		logger.Log.Debug("[SERVER HANDLER]User liked the stream",
+		// A. Parse Input
+		// Client sends: {"count": 10}
+		var likes model.Like
+		if err := json.Unmarshal(data, &likes); err != nil {
+			// Default to 1 if payload is empty or invalid
+			likes.Count = 1
+		}
+
+		// B. Wrap in WsPacket (Envelope)
+		// We re-marshal the likes to ensure format consistency
+		dataBytes, _ := json.Marshal(likes)
+
+		outgoingPacket := model.WsPacket{
+			Type:   model.ActionLike,
+			RoomID: c.RoomID,
+			Data:   dataBytes,
+		}
+
+		// C. Send to Manager (Handover responsibility)
+		m.Broadcast <- &outgoingPacket
+
+		logger.Log.Debug("[SERVER HANDLER] Like packet forwarded to manager",
 			zap.Uint64("uid", c.UserID),
 			zap.String("room", c.RoomID),
 		)
-
 	})
 	logger.Log.Info("[SERVER HANDLER]Registered Handler: Like/Action")
 }
