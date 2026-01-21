@@ -15,7 +15,6 @@ const (
 	TypeDanmaku = 101
 	// TypeStats: Room statistics (Online count, Likes)
 	TypeStats = 102
-
 	// ActionLike: User sends a "Like" signal (Client -> Server)
 	ActionLike = 103
 )

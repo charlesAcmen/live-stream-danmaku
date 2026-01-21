@@ -42,8 +42,8 @@ var targetHosts = []string{
 func main() {
 	// 1. Parse command line flags
 	// maximum capacity is 56,460 because of non-infinite number of ports on this laptop
-	clients := flag.Int("c", 100000, "Number of concurrent clients")
-	rate := flag.Duration("r", 3600*time.Second, "Message sending interval per client")
+	clients := flag.Int("c", 100, "Number of concurrent clients")
+	rate := flag.Duration("r", 1*time.Second, "Message sending interval per client")
 	flag.Parse()
 
 	// 2. Initialize Logger (Development mode for colored output)
@@ -66,7 +66,7 @@ func main() {
 
 	// Control the startup rate to avoid "connection refused" or OS limits
 	// Start 500 clients per second
-	rampUpTicker := time.NewTicker(2 * time.Millisecond)
+	rampUpTicker := time.NewTicker(1 * time.Millisecond)
 	defer rampUpTicker.Stop()
 
 	for i := 0; i < *clients; i++ {
