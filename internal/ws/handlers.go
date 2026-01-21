@@ -12,7 +12,7 @@ import (
 
 // InitHandlers registers all business logic callbacks.
 // This implements the "Strategy Pattern" to handle different WebSocket message types.
-// MUST be called in main.go before server starts.
+// MUST be called in main.go of server before server starts.
 func InitHandlers() {
 
 	// 1. Handle Danmaku Logic
