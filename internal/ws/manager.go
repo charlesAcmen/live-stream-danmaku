@@ -74,6 +74,7 @@ func (m *Manager) Start() {
 		case client := <-m.Unregister:
 			m.handleUnregister(client)
 		case packet := <-m.Broadcast:
+			m.handleBroadcast(packet)
 			m.publishToRedis(packet)
 			// Produce to Kafka (For Storage/Persistence)
 			// 'message' is already a JSON bytes containing user info & content.

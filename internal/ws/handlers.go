@@ -42,8 +42,9 @@ func InitHandlers() {
 		// C. Wrap in outgoing Envelope
 		dataBytes, _ := json.Marshal(fullMsg)
 		outgoingPacket := model.WsPacket{
-			Type: model.TypeDanmaku, // 101
-			Data: dataBytes,
+			Type:   model.TypeDanmaku, // 101
+			RoomID: c.RoomID,
+			Data:   dataBytes,
 		}
 		m.Broadcast <- &outgoingPacket
 		logger.Log.Debug("[SERVER HANDLER]Danmaku processed",
