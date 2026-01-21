@@ -143,8 +143,19 @@ func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 // broadcastStats fetches stats from Redis and broadcasts to LOCAL clients.
 func (m *Manager) broadcastStats() {
 	logger.Log.Info("[MANAGER]BroadcastStats called")
-	ctx := context.Background()
+	// 1. Iterate over all active rooms on this server
+	// We need to fetch and broadcast stats for EACH room separately.
+	m.mu.RLock()
+	roomIDs := make([]string, 0, len(m.Rooms))
+	for roomID := range m.Rooms {
+		roomIDs = append(roomIDs, roomID)
+	}
+	m.mu.RUnlock()
 
+	ctx := context.Background()
+	for _, roomID := range roomIDs {
+		
+	}
 	// 1. Fetch data from Redis (Single Source of Truth)
 	online, _ := m.RedisClient.Get(ctx, KeyOnlineCount).Int64()
 	likes, _ := m.RedisClient.Get(ctx, KeyTotalLikes).Int64()
