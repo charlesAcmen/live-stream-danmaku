@@ -79,8 +79,8 @@ func (DanmakuMessage) TableName() string {
 
 // StatsData: The content for TypeStats
 type StatsData struct {
-	Online uint32 `json:"online"`
-	Likes  uint32 `json:"likes"`
+	Online int64 `json:"online"`
+	Likes  int64 `json:"likes"`
 }
 
 // CmdLike: The content for ActionLike (Client -> Server)
