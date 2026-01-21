@@ -22,7 +22,7 @@ func InitHandlers() {
 		var inputMsg model.DanmakuMessage
 		if err := json.Unmarshal(data, &inputMsg); err != nil {
 			logger.Log.Error("[SERVER HANDLER]Invalid Danmaku Data format",
-				zap.String("uid", c.UserID),
+				zap.Uint64("uid", c.UserID),
 				zap.Error(err),
 			)
 			return
@@ -32,11 +32,9 @@ func InitHandlers() {
 		// Client doesn't know its own ID/Avatar trustfully, Server adds it.
 		// This ensures all downstream systems (Redis, Kafka) know WHO sent it.
 		fullMsg := model.DanmakuMessage{
-			RoomID:     c.RoomID,
-			UserID:     c.UserID,
-			Username:   c.Username,
-			UserAvatar: c.UserAvatar,
-			Content:    inputMsg.Content,
+			RoomID:  c.RoomID,
+			UserID:  c.UserID,
+			Content: inputMsg.Content,
 			//if sent successfully,set send time as accepting time
 			SendTime: time.Now(),
 		}
@@ -52,7 +50,7 @@ func InitHandlers() {
 		finalBytes, _ := json.Marshal(outgoingPacket)
 		m.Broadcast <- finalBytes
 		logger.Log.Debug("[SERVER HANDLER]Danmaku processed",
-			zap.String("uid", c.UserID),
+			zap.Uint64("uid", c.UserID),
 			zap.String("room", c.RoomID),
 			zap.String("content", inputMsg.Content),
 		)
@@ -64,9 +62,9 @@ func InitHandlers() {
 	Register(model.ActionLike, func(c *Client, m *Manager, data []byte) {
 		// No data parsing needed for simple like
 		// Update the like counter in Redis (via Manager)
-		m.AddLike()
+		m.AddLike(c.RoomID)
 		logger.Log.Debug("[SERVER HANDLER]User liked the stream",
-			zap.String("uid", c.UserID),
+			zap.Uint64("uid", c.UserID),
 			zap.String("room", c.RoomID),
 		)
 

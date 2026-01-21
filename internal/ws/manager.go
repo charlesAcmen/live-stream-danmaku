@@ -3,6 +3,7 @@ package ws
 import (
 	"context" // context is used to manage the lifecycle of the Redis client
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time" //broadcast stats data timer
 
@@ -40,7 +41,6 @@ const (
 	RedisChannel   = "chat_room"
 	KafkaTopic     = "danmaku_save_topic" // Topic name for Kafka
 	KeyOnlineCount = "room:1001:online"   // Key for online user count
-	KeyTotalLikes  = "room:1001:likes"    // Key for total likes
 )
 
 func NewManager() *Manager {
@@ -262,8 +262,10 @@ func (m *Manager) broadcastStats() {
 }
 
 // AddLike increments the like counter in Redis atomically.
-func (m *Manager) AddLike() {
-	m.RedisClient.Incr(context.Background(), KeyTotalLikes)
+func (m *Manager) AddLike(roomID string) {
+	// Key format: "room:1001:likes"
+	key := fmt.Sprintf("room:%s:likes", roomID)
+	m.RedisClient.Incr(context.Background(), key)
 }
 
 // Configure the Upgrader
