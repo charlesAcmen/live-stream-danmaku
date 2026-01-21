@@ -40,8 +40,11 @@ func main() {
 	chatService := service.NewChatService(messageRepo)
 	// 3. Init WebSocket Manager
 	manager := ws.NewManager()
-	chatHandler := api.NewChatHandler(chatService, manager)
 	go manager.Start()
+
+	// 4. Setup API Handlers (Dependency Injection)
+	// We pass the manager and service into the handler.
+	chatHandler := api.NewChatHandler(chatService, manager)
 
 	// 4. Init Router
 	// r := gin.Default()
@@ -49,22 +52,9 @@ func main() {
 	r := gin.New()
 	// Manually attach Recovery middleware (Critical for preventing server crash on panic)
 	r.Use(gin.Recovery())
-	//leave Logger alone
-
-	// HTTP API Group
-	// Group: RESTful API v1
-	// v1 := r.Group("/api/v1")
-	// {
-	// Playback (VOD) API: Fetch historical messages from MySQL
-	// live stream playback url
-	// URL: http://localhost:8080/api/v1/playback?room=1001&time=...
-	// v1.GET("/playback", chatHandler.HandlePlaybackRequest)
-	// }
 
 	// WebSocket Route
-	r.GET("/ws", func(c *gin.Context) {
-		ws.WsHandler(manager, c.Writer, c.Request)
-	})
+	r.GET("/ws", chatHandler.ConnectWebSocket)
 
 	addr := ":" + *port
 	if err := r.Run(addr); err != nil {
