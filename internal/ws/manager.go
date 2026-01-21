@@ -103,7 +103,6 @@ func (m *Manager) handleRegister(client *Client) {
 		zap.String("room", client.RoomID),
 		zap.Int("total", len(m.Rooms[client.RoomID])))
 }
-
 func (m *Manager) handleUnregister(client *Client) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -131,16 +130,41 @@ func (m *Manager) handleUnregister(client *Client) {
 func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 	// Serialize the envelope for Redis distribution
 	payload, _ := json.Marshal(packet)
-	// 1. Process local/remote broadcasting via Redis
-	infra.PublishToRoom(m.RedisClient, packet.RoomID, payload)
-	// 2. Process data persistence via Kafka
-	// We only archive specific types
-	if packet.Type == model.TypeDanmaku {
+
+	switch packet.Type {
+	// Case A: Danmaku (User generated)
+	// Send to Redis (so other servers see it).
+	// Send to Kafka (for history storage).
+	// Note: We do NOT call m.broadcastToLocalRoom here.
+	// Why? Because Redis Sub goroutine will receive it and call broadcastToLocalRoom.
+	// If we call it here, the local user will see the message twice!
+	case model.TypeDanmaku:
+		infra.PublishToRoom(m.RedisClient, packet.RoomID, payload)
+		// 2. Process data persistence via Kafka
+		// We only archive specific types
 		infra.PushToInput(m.KafkaProducer, KafkaTopic, payload)
+	// Case B: Like (User generated)
+	// Send to Redis (real-time).
+	// Skip Kafka (usually likes are just counters, detailed logs might not be needed).
+	case model.ActionLike:
+		// 1. Business Logic: Increment Redis Counter
+		// We need to peek inside the Data to know the "Count"
+		var cmd model.Like
+		if err := json.Unmarshal(packet.Data, &cmd); err == nil {
+			// Call Infra to increment
+			infra.IncrRoomLikes(m.RedisClient, packet.RoomID, cmd.Count)
+		}
+	// Case A: Stats (Generated locally, sent locally)
+	// Do NOT send to Redis (avoids broadcast storm).
+	// Do NOT send to Kafka (no need to save transient stats).
+	case model.TypeStats:
+		m.broadcastToLocalRoom(packet.RoomID, payload)
+	default:
+		logger.Log.Warn("[MANAGER] Unknown packet type", zap.Int("type", packet.Type))
 	}
 }
 
-// broadcastStats fetches stats from Redis and broadcasts to LOCAL clients.
+// broadcastStats fetches stats for ALL active rooms and sends updates locally.
 func (m *Manager) broadcastStats() {
 	logger.Log.Info("[MANAGER]BroadcastStats called")
 	// 1. Iterate over all active rooms on this server
@@ -154,41 +178,28 @@ func (m *Manager) broadcastStats() {
 
 	ctx := context.Background()
 	for _, roomID := range roomIDs {
-		
-	}
-	// 1. Fetch data from Redis (Single Source of Truth)
-	online, _ := m.RedisClient.Get(ctx, KeyOnlineCount).Int64()
-	likes, _ := m.RedisClient.Get(ctx, KeyTotalLikes).Int64()
+		online, likes := infra.GetRoomStats(m.RedisClient, roomID)
 
-	// 2. Wrap data into StatsData struct
-	stats := model.StatsData{
-		Online: online,
-		Likes:  likes,
-	}
+		stats := model.StatsData{
+			Online: online,
+			Likes:  likes,
+		}
+		dataBytes, _ := json.Marshal(stats)
 
-	// 3. Serialize payload
-	dataBytes, _ := json.Marshal(stats)
+		// Create packet
+		packet := &model.WsPacket{
+			Type:   model.TypeStats,
+			RoomID: roomID,
+			Data:   dataBytes,
+		}
 
-	// 4. Wrap in WsPacket (Envelope)
-	packet := model.WsPacket{
-		Type: model.TypeStats, // 102
-		Data: dataBytes,
-	}
-	finalBytes, _ := json.Marshal(packet)
-
-	// 5. Send to all local clients
-	// We do NOT publish to Redis here, because every server instance has its own ticker
-	// and will fetch the same data from Redis.
-	for client := range m.Clients {
+		// Non-blocking send to self (avoid deadlock if channel is full)
 		select {
-		case client.Send <- finalBytes:
+		case m.Broadcast <- packet:
 		default:
-			close(client.Send)
-			delete(m.Clients, client)
+			logger.Log.Warn("[MANAGER] Broadcast channel full, skipping stats", zap.String("room", roomID))
 		}
 	}
-	//takes only a few ms to broadcast to all clients
-
 }
 
 // subscribeToRoom listens to a specific Redis channel for a room
@@ -210,6 +221,7 @@ func (m *Manager) subscribeToRoom(roomID string) {
 	}
 }
 
+// broadcastToLocalRoom sends raw bytes to all clients in a specific room.
 func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
 	//read lock
 	m.mu.RLock()
@@ -220,18 +232,12 @@ func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
 			select {
 			case client.Send <- payload:
 			default:
-				// If client buffer is full, we don't block the whole room
-				//close and remove to prevent blocking.
-				close(client.Send)
+				// FIX: Do NOT modify the map (delete) inside RLock.
+				// Instead, just close the channel and let WritePump handle the error,
+				// or send to Unregister channel (in a non-blocking way).
+				m.Unregister <- client
 				delete(clients, client)
 			}
 		}
 	}
-}
-
-// AddLike increments the like counter in Redis atomically.
-func (m *Manager) AddLike(roomID string) {
-	// Key format: "room:1001:likes"
-	key := fmt.Sprintf("room:%s:likes", roomID)
-	m.RedisClient.Incr(context.Background(), key)
 }
