@@ -10,6 +10,7 @@ func InitKafkaProducer() sarama.AsyncProducer {
 	// 2. Init Kafka Producer
 	// Configure Sarama settings
 	config := sarama.NewConfig()
+	config.ChannelBufferSize = 4096 // Allow more buffering in memory
 	// We must wait for the acknowledgment from Kafka to ensure data is safe.
 	//   - NoResponse
 	//   - WaitForLocal: Leader returns OK after receiving
