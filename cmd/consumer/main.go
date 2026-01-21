@@ -33,11 +33,15 @@ func main() {
 	db := infra.InitDB()
 	logger.Log.Info("[KAFKA CONSUMER]Database initialized")
 
+	messageRepo := repo.NewMessageRepo(db)
+	handler := consumer.NewDanmakuHandler(messageRepo, BatchSize)
+
 	// 3. configure Kafka Consumer Group
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
-	// OffsetOldest: 如果是新的消费者组，从最早的消息开始读（防止启动前积压的消息丢失）
-	// OffsetNewest: 只要最新的（可能会丢历史）
+	// OffsetOldest: If the group is new, start from the very beginning.
+	// This ensures we don't miss messages sent while the consumer was down.
+	// OffsetNewest: discard history
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 
 	brokers := []string{"127.0.0.1:9092"}
@@ -56,33 +60,30 @@ func main() {
 		}
 	}()
 
-	// 5. prepare Context and Handler
+	// 5. Setup Graceful Shutdown
+	// Create a context that can be canceled.
 	ctx, cancel := context.WithCancel(context.Background())
-	messageRepo := repo.NewMessageRepo(db)
-	handler := consumer.NewDanmakuHandler(messageRepo, BatchSize)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		sig := <-sigChan
-		logger.Log.Info("[KAFKA CONSUMER]Received signal, shutting down...", zap.String("signal", sig.String()))
+		logger.Log.Info("[KAFKA CONSUMER]Signal received, shutting down...", zap.String("signal", sig.String()))
 		cancel() // cancel context，notify group.Consume to exit
 	}()
 
 	// 7. start consuming
-	logger.Log.Info("[KAFKA CONSUMER]Consumer started, waiting for messages...")
+	logger.Log.Info("[KAFKA CONSUMER]Ready to process messages")
 
 	for {
-		// Consume will be blocked till error or ctx being canceleds
-		// This is a BLOCKING call.
-		// It will not return until:
-		// 1. A rebalance happens (e.g., a new consumer joins/leaves).
-		// 2. The context is canceled (server shutdown).
-		// 3. A serious error occurs.
+		// Consume is a blocking call.
+		// It returns when:
+		// A) A rebalance occurs (new member joined/left) -> Loop continues
+		// B) Context is canceled -> Loop breaks
 		err := group.Consume(ctx, []string{KafkaTopic}, handler)
 		if err != nil {
-			logger.Log.Error("[KAFKA CONSUMER]Error in consumer loop", zap.Error(err))
+			logger.Log.Error("[KAFKA CONSUMER]Consume loop error", zap.Error(err))
 			time.Sleep(time.Second) // retry after a bit
 		}
 		if ctx.Err() != nil {
