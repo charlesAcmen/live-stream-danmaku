@@ -38,10 +38,9 @@ func main() {
 	// Repo -> Service -> Handler
 	messageRepo := repo.NewMessageRepo(db)
 	chatService := service.NewChatService(messageRepo)
-	chatHandler := api.NewChatHandler(chatService)
-
 	// 3. Init WebSocket Manager
 	manager := ws.NewManager()
+	chatHandler := api.NewChatHandler(chatService, manager)
 	go manager.Start()
 
 	// 4. Init Router
