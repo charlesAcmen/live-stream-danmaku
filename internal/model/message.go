@@ -87,5 +87,5 @@ type StatsData struct {
 // CmdLike: The content for ActionLike (Client -> Server)
 // Currently empty, but extensible (e.g., send 10 likes at once).
 type Like struct {
-	Count uint32 `json:"count"`
+	Count uint64 `json:"count"`
 }

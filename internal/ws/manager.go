@@ -233,9 +233,7 @@ func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
 			case client.Send <- payload:
 			default:
 				// FIX: Do NOT modify the map (delete) inside RLock.
-				// Instead, just close the channel and let WritePump handle the error,
-				// or send to Unregister channel (in a non-blocking way).
-				m.Unregister <- client
+				// Instead, just close the channel and let WritePump handle the error
 				delete(clients, client)
 			}
 		}
