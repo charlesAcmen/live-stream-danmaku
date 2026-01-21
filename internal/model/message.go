@@ -37,6 +37,7 @@ type WsPacket struct {
 // Part 3: The Payloads
 // ==========================================
 
+// DanmakuMessage: The content for TypeDanmaku
 // table danmaku_messages in danmaku_db database
 // DanmakuMessage represents the standard data format for communication.
 // It is used for:
@@ -47,37 +48,43 @@ type DanmakuMessage struct {
 	ID uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
 
 	// Room info
-	//idx_room_time:composite index/joint index
+	//idx_room_time:composite index/joint index with SendTime
 	RoomID string `gorm:"type:varchar(50);not null;index:idx_room_time" json:"room_id"`
 
 	// RoomName string `gorm:"type:varchar(100);not null"`
 
 	// User info
-	UserID   string `gorm:"type:varchar(50);not null;index" json:"user_id"`
-	Username string `gorm:"type:varchar(50);not null" json:"username"`
-	//redundancy to avoid join tables
-	UserAvatar string `gorm:"type:varchar(255)" json:"user_avatar"`
+	// foreign key for user table
+	UserID uint64 `gorm:"not null;index" json:"user_id"`
 
 	// Content
 	// utf8mb4 coding
 	Content string `gorm:"type:varchar(500);not null" json:"content"`
 
 	// Time
+	//conposite index with RoomID
+	//precision till thousand level:12:00:01.456
 	SendTime time.Time `gorm:"type:datetime(3);not null;index:idx_room_time" json:"send_time"`
+
+	//index:idx_room_time
+	//danmaku in storage is ordered first by roomid,then time
+	//efficient for WHERE room_id = '1001' ORDER BY send_time
+	//which requires ordering in memory
 }
 
+// used by GORM to migrate table name
 func (DanmakuMessage) TableName() string {
 	return "danmaku_messages"
 }
 
 // StatsData: The content for TypeStats
 type StatsData struct {
-	Online int64 `json:"online"`
-	Likes  int64 `json:"likes"`
+	Online uint32 `json:"online"`
+	Likes  uint32 `json:"likes"`
 }
 
 // CmdLike: The content for ActionLike (Client -> Server)
 // Currently empty, but extensible (e.g., send 10 likes at once).
 type CmdLike struct {
-	Count int `json:"count"`
+	Count uint32 `json:"count"`
 }
