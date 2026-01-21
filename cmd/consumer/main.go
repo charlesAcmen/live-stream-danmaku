@@ -9,12 +9,10 @@ import (
 
 	"github.com/IBM/sarama"
 	"go.uber.org/zap"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
 
 	"github.com/charlesAcmen/livestream-danmaku/internal/consumer"
+	"github.com/charlesAcmen/livestream-danmaku/internal/infra"
 	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
-	"github.com/charlesAcmen/livestream-danmaku/internal/model"
 	"github.com/charlesAcmen/livestream-danmaku/internal/repo"
 )
 
@@ -32,15 +30,7 @@ func main() {
 	logger.Log.Info("[KAFKA CONSUMER]Starting Kafka Consumer...")
 
 	// 2. init db
-	dsn := "root:root@tcp(127.0.0.1:3306)/danmaku_db?charset=utf8mb4&parseTime=True&loc=Local"
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	if err != nil {
-		logger.Log.Fatal("[KAFKA CONSUMER]Failed to connect to database", zap.Error(err))
-	}
-
-	if err := db.AutoMigrate(&model.DanmakuMessage{}); err != nil {
-		logger.Log.Fatal("[KAFKA CONSUMER]Migration failed", zap.Error(err))
-	}
+	db := infra.InitDB()
 	logger.Log.Info("[KAFKA CONSUMER]Database initialized")
 
 	// 3. configure Kafka Consumer Group
