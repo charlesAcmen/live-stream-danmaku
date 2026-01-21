@@ -34,5 +34,5 @@ func main() {
 		logger.Log.Fatal("[MIGRATE]Migration failed:", zap.Error(err))
 	}
 
-	logger.Log.Info("[MIGRATE]🎉 Database migration successful! Table 'danmu_messages' created.")
+	logger.Log.Info("[MIGRATE]🎉 Database migration successful! Table 'danmaku_messages' created.")
 }

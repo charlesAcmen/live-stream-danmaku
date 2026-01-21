@@ -99,9 +99,9 @@ func main() {
 			switch packet.Type {
 
 			case model.TypeDanmaku:
-				var danmu model.DanmakuMessage
-				json.Unmarshal(packet.Data, &danmu)
-				logger.Log.Info("[Live Chat]", zap.String("username", danmu.Username), zap.String("content", danmu.Content))
+				var danmaku model.DanmakuMessage
+				json.Unmarshal(packet.Data, &danmaku)
+				logger.Log.Info("[Live Chat]", zap.String("content", danmaku.Content))
 
 			case model.TypeStats:
 				var stats model.StatsData

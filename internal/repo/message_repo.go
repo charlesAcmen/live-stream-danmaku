@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// MessageRepo handles database operations for danmu messages.
+// MessageRepo handles database operations for danmaku messages.
 type MessageRepo struct {
 	db *gorm.DB
 }
