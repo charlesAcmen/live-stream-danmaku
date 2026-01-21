@@ -25,10 +25,11 @@ const (
 
 // WsPacket is the standard wrapper for ALL websocket communications.
 // Every message sent or received must follow this structure.
+// It contains metadata required for ROUTING without parsing the inner payload.
 type WsPacket struct {
 	// Type tells the receiver what 'Data' contains.
-	Type int `json:"type"`
-
+	Type   int    `json:"type"`
+	RoomID string `json:"room_id,omitempty"` // Routing key
 	// type RawMessage []byte,rather than map[int]interface{} using Assert
 	Data json.RawMessage `json:"data"`
 }
@@ -85,6 +86,6 @@ type StatsData struct {
 
 // CmdLike: The content for ActionLike (Client -> Server)
 // Currently empty, but extensible (e.g., send 10 likes at once).
-type CmdLike struct {
+type Like struct {
 	Count uint32 `json:"count"`
 }

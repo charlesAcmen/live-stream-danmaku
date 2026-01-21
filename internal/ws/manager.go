@@ -149,7 +149,7 @@ func (m *Manager) handleUnregister(client *Client) {
 	}
 }
 
-func (m *Manager) publishToRedis(message []byte) {
+func (m *Manager) publishToRedis(message []model.WsPacket) {
 	// 1. Extract RoomID from the data (assuming DanmakuMessage inside)
 	// For simplicity, let's assume we pass RoomID in the Broadcast channel or parse it
 	// Here, we use a placeholder logic:
