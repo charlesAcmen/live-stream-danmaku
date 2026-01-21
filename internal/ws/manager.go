@@ -4,7 +4,6 @@ import (
 	"context" // context is used to manage the lifecycle of the Redis client
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"sync"
 	"time" //broadcast stats data timer
 
@@ -66,8 +65,7 @@ func NewManager() *Manager {
 func (m *Manager) Start() {
 	// Start a separate goroutine to subscribe to Redis messages.
 	go m.subscribeToRedis()
-	// 2. [NEW] Setup Ticker: Broadcast stats every 3 seconds
-	// This prevents broadcasting storm when likes increase rapidly.
+
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
@@ -226,17 +224,4 @@ func (m *Manager) AddLike(roomID string) {
 	// Key format: "room:1001:likes"
 	key := fmt.Sprintf("room:%s:likes", roomID)
 	m.RedisClient.Incr(context.Background(), key)
-}
-
-// handle specific connection requests
-func WsHandler(manager *Manager, w http.ResponseWriter, r *http.Request) {
-
-	// create a new client
-	client := &Client{
-		UserID:   uid,
-		Username: name,
-		RoomID:   room,
-		Socket:   conn,
-		Send:     make(chan []byte, 1024), // buffer 1024 bytes
-	}
 }
