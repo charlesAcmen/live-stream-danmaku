@@ -129,40 +129,15 @@ func (m *Manager) handleUnregister(client *Client) {
 	}
 }
 func (m *Manager) handleBroadcast(packet *model.WsPacket) {
-	// 1. Process local/remote broadcasting via Redis
-	m.pushToRedis(packet)
-	// 2. Process data persistence via Kafka
-	// We only archive specific types (e.g., Danmaku, Gifts)
-	if packet.Type == model.TypeDanmaku {
-		m.pushToKafka(packet)
-	}
-}
-func (m *Manager) pushToRedis(message *model.WsPacket) {
-	// 1. Extract RoomID from the data (assuming DanmakuMessage inside)
-	// For simplicity, let's assume we pass RoomID in the Broadcast channel or parse it
-	// Here, we use a placeholder logic:
-	roomID := "1001" // In reality, parse this from the message or wrap it
-
-	channelName := fmt.Sprintf("room:%s:pubsub", roomID)
-	payload, _ := json.Marshal(message)
-
-	// Publish the message to the channelName in Redis.
-	err := m.RedisClient.Publish(context.Background(), channelName, payload).Err()
-	if err != nil {
-		logger.Log.Error("[MANAGER]Error publishing to Redis",
-			zap.String("room", roomID),
-			zap.Error(err))
-	} else {
-		logger.Log.Info("[MANAGER]Message published to Redis",
-			zap.String("room", roomID),
-			zap.ByteString("message", message))
-	}
-
-}
-func (m *Manager) pushToKafka(packet *model.WsPacket) {
+	// Serialize the envelope for Redis distribution
 	payload, _ := json.Marshal(packet)
-
-	infra.PushToInput(m.KafkaProducer,KafkaTopic,payload)
+	// 1. Process local/remote broadcasting via Redis
+	infra.PublishToRoom(m.RedisClient, packet.RoomID, payload)
+	// 2. Process data persistence via Kafka
+	// We only archive specific types
+	if packet.Type == model.TypeDanmaku {
+		infra.PushToInput(m.KafkaProducer, KafkaTopic, payload)
+	}
 }
 
 // broadcastStats fetches stats from Redis and broadcasts to LOCAL clients.
