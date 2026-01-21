@@ -10,7 +10,7 @@ import (
 	"github.com/IBM/sarama" //driver for apache Kafka clients lib
 	"github.com/charlesAcmen/livestream-danmaku/internal/infra"
 	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
-	"github.com/charlesAcmen/livestream-danmaku/internal/model" // Gorilla WebSocket is a WebSocket implementation for Go.
+	"github.com/charlesAcmen/livestream-danmaku/internal/model"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -75,11 +75,6 @@ func (m *Manager) Start() {
 			m.handleUnregister(client)
 		case packet := <-m.Broadcast:
 			m.handleBroadcast(packet)
-			// 2. Process data persistence via Kafka
-			// We only archive specific types (e.g., Danmaku, Gifts)
-			if packet.Type == model.TypeDanmaku {
-				m.pushToKafka(packet)
-			}
 		case <-ticker.C:
 			m.broadcastStats()
 		}
@@ -133,8 +128,16 @@ func (m *Manager) handleUnregister(client *Client) {
 		}
 	}
 }
-
-func (m *Manager) handleBroadcast(message *model.WsPacket) {
+func (m *Manager) handleBroadcast(packet *model.WsPacket) {
+	// 1. Process local/remote broadcasting via Redis
+	m.pushToRedis(packet)
+	// 2. Process data persistence via Kafka
+	// We only archive specific types (e.g., Danmaku, Gifts)
+	if packet.Type == model.TypeDanmaku {
+		m.pushToKafka(packet)
+	}
+}
+func (m *Manager) pushToRedis(message *model.WsPacket) {
 	// 1. Extract RoomID from the data (assuming DanmakuMessage inside)
 	// For simplicity, let's assume we pass RoomID in the Broadcast channel or parse it
 	// Here, we use a placeholder logic:
@@ -156,29 +159,10 @@ func (m *Manager) handleBroadcast(message *model.WsPacket) {
 	}
 
 }
-
 func (m *Manager) pushToKafka(packet *model.WsPacket) {
 	payload, _ := json.Marshal(packet)
 
-	// Produce to Kafka (For Storage/Persistence)
-	// 'payload' is already a JSON bytes containing user info & content.
-	kafkaMsg := &sarama.ProducerMessage{
-		Topic: KafkaTopic,
-		//Kafka is a byte logging system that deal with binary bytes stream
-		Value: sarama.ByteEncoder(payload),
-	}
-
-	select {
-	// Async send (Non-blocking)
-	case m.KafkaProducer.Input() <- kafkaMsg:
-	default:
-		// [CIRCUIT BREAKER]
-		// If Sarama's internal buffer (Channel) is full, we DROP the message.
-		// This prevents the Manager from hanging and ensures real-time broadcast (Redis)
-		// remains unaffected even if Kafka is slow or down.
-		logger.Log.Warn("[MANAGER] Kafka input buffer full, dropping persistence message",
-			zap.String("room", packet.RoomID))
-	}
+	infra.PushToInput(m.KafkaProducer,KafkaTopic,payload)
 }
 
 // broadcastStats fetches stats from Redis and broadcasts to LOCAL clients.

@@ -34,17 +34,38 @@ func InitKafkaProducer() sarama.AsyncProducer {
 	if err != nil {
 		// In production, we might want to retry or fail gracefully.
 		// For now, we panic because without Kafka, persistence fails.
-		logger.Log.Panic("[INFRA]Failed to start Kafka async producer", zap.Error(err))
+		logger.Log.Panic("[KAFKA INFRA]Failed to start Kafka async producer", zap.Error(err))
 	}
 	//listen from KAFKA producer error channel
 	//if not doing so,errors will fill in channel till blocking producer
 	go func() {
 		for err := range producer.Errors() {
-			logger.Log.Error("[MANAGER] Kafka Async Write Error",
+			logger.Log.Error("[KAFKA INFRA] Kafka Async Write Error",
 				zap.Error(err.Err),
 				zap.Any("msg", err.Msg),
 			)
 		}
 	}()
 	return producer
+}
+
+// PushToInput acts as a helper to hide the select-default logic
+func PushToInput(producer sarama.AsyncProducer, topic string, payload []byte) {
+	// Produce to Kafka (For Storage/Persistence)
+	// 'payload' is already a JSON bytes containing user info & content.
+	msg := &sarama.ProducerMessage{
+		Topic: topic,
+		//Kafka is a byte logging system that deal with binary bytes stream
+		Value: sarama.ByteEncoder(payload),
+	}
+	select {
+	// Async send (Non-blocking)
+	case producer.Input() <- msg:
+	default:
+		// [CIRCUIT BREAKER]
+		// If Sarama's internal buffer (Channel) is full, we DROP the message.
+		// This prevents the Manager from hanging and ensures real-time broadcast (Redis)
+		// remains unaffected even if Kafka is slow or down.
+		logger.Log.Warn("[KAFKA INFRA] Kafka input buffer full, dropping persistence message")
+	}
 }
