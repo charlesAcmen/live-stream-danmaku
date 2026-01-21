@@ -175,8 +175,6 @@ func (m *Manager) broadcastStats() {
 		roomIDs = append(roomIDs, roomID)
 	}
 	m.mu.RUnlock()
-
-	ctx := context.Background()
 	for _, roomID := range roomIDs {
 		online, likes := infra.GetRoomStats(m.RedisClient, roomID)
 

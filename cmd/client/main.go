@@ -44,7 +44,7 @@ func main() {
 
 	//Generate random user if not provided
 	if *uid == "" {
-		*uid = fmt.Sprintf("User-%d", time.Now().UnixNano())
+		*uid = fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 
 	logger.Log.Info("Connecting...", zap.String("uid", *uid), zap.String("room", *room))
