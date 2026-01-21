@@ -9,6 +9,7 @@ import (
 	"time" //broadcast stats data timer
 
 	"github.com/IBM/sarama" //driver for apache Kafka clients lib
+	"github.com/charlesAcmen/livestream-danmaku/internal/infra"
 	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"github.com/charlesAcmen/livestream-danmaku/internal/model" // Gorilla WebSocket is a WebSocket implementation for Go.
 	"github.com/redis/go-redis/v9"
@@ -49,19 +50,8 @@ const (
 )
 
 func NewManager() *Manager {
-	// Initialize Redis client.
-	// Ensure Redis is running on localhost:6379 via Docker.
-	// Lazy loading: only create Redis client when first time trying to contact
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-
-	
-
-	
-
+	rdb := infra.InitRedis()
+	producer := infra.InitKafkaProducer()
 	return &Manager{
 		Register:      make(chan *Client),
 		Unregister:    make(chan *Client),
