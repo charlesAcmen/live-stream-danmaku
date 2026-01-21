@@ -16,12 +16,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Helper struct to parse incoming JSON messages for display
-// type IncomingMsg struct {
-// 	Username string `json:"username"`
-// 	Content  string `json:"content"`
-// }
-
 func sendPacket(c *websocket.Conn, msgType int, data interface{}) {
 	// 1.data to JSON bytes
 	// e.g. {"content": "hello"}
@@ -57,7 +51,7 @@ func main() {
 
 	// 1. server address
 	//Scheme: protocol, Host: server address, Path: route
-	u := url.URL{Scheme: "ws", Host: "localhost:" + *port, Path: "/ws"}
+	u := url.URL{Scheme: "ws", Host: "127.0.0.1:" + *port, Path: "/ws"}
 	q := u.Query()
 	//?uid=...
 	q.Set("uid", *uid)
