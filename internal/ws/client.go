@@ -18,6 +18,16 @@ type Client struct {
 	Send   chan []byte     // a channel to send messages to the client
 }
 
+func NewClient(uid uint64, name, room string, conn *websocket.Conn) *Client {
+	return &Client{
+		UserID:   uid,
+		Username: name,
+		RoomID:   room,
+		Socket:   conn,
+		Send:     make(chan []byte, 1024),
+	}
+}
+
 // ReadPump: clients read from websocket to receive message, then send to manager to broadcast
 func (c *Client) ReadPump(manager *Manager) {
 	defer func() {

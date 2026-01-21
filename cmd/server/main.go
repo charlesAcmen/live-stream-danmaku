@@ -53,13 +53,13 @@ func main() {
 
 	// HTTP API Group
 	// Group: RESTful API v1
-	v1 := r.Group("/api/v1")
-	{
-		// Playback (VOD) API: Fetch historical messages from MySQL
-		// live stream playback url
-		// URL: http://localhost:8080/api/v1/playback?room=1001&time=...
-		v1.GET("/playback", chatHandler.HandlePlaybackRequest)
-	}
+	// v1 := r.Group("/api/v1")
+	// {
+	// Playback (VOD) API: Fetch historical messages from MySQL
+	// live stream playback url
+	// URL: http://localhost:8080/api/v1/playback?room=1001&time=...
+	// v1.GET("/playback", chatHandler.HandlePlaybackRequest)
+	// }
 
 	// WebSocket Route
 	r.GET("/ws", func(c *gin.Context) {
