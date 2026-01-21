@@ -16,6 +16,17 @@ func InitDB() *gorm.DB {
 		logger.Log.Fatal("[DB INFRA]Failed to connect to database", zap.Error(err))
 	}
 
+	if err := db.Migrator().DropTable(&model.DanmakuMessage{}); err != nil {
+		logger.Log.Error("[DB INFRA]Drop table DanmakuMessage failed", zap.Error(err))
+	}
+	// INSERT_YOUR_CODE
+	if err := db.Migrator().DropTable(&model.Room{}); err != nil {
+		logger.Log.Error("[DB INFRA]Drop table Room failed", zap.Error(err))
+	}
+	if err := db.Migrator().DropTable(&model.User{}); err != nil {
+		logger.Log.Error("[DB INFRA]Drop table User failed", zap.Error(err))
+	}
+
 	// Auto-Migrate (Create tables if not exist)
 	if err := db.AutoMigrate(&model.DanmakuMessage{}); err != nil {
 		logger.Log.Fatal("[DB INFRA]Database table DanmakuMessage migration failed", zap.Error(err))

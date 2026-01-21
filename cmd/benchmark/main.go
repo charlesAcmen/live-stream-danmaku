@@ -35,15 +35,15 @@ var (
 var targetHosts = []string{
 	"localhost:8081",
 	"localhost:8082",
-	"localhost:8083",
-	"localhost:8084",
+	// "localhost:8083",
+	// "localhost:8084",
 }
 
 func main() {
 	// 1. Parse command line flags
 	// maximum capacity is 56,460 because of non-infinite number of ports on this laptop
-	clients := flag.Int("c", 100, "Number of concurrent clients")
-	rate := flag.Duration("r", 1*time.Second, "Message sending interval per client")
+	clients := flag.Int("c", 1000, "Number of concurrent clients")
+	rate := flag.Duration("r", 2*time.Second, "Message sending interval per client")
 	flag.Parse()
 
 	// 2. Initialize Logger (Development mode for colored output)
@@ -128,7 +128,7 @@ func runBot(host string, id int, interval time.Duration) {
 	// 1. Build WebSocket URL with authentication params
 	u := url.URL{Scheme: "ws", Host: host, Path: "/ws"}
 	q := u.Query()
-	q.Set("uid", fmt.Sprintf("bot-%d", id))
+	q.Set("uid", fmt.Sprintf("%d", id))
 	q.Set("name", "benchmark-bot")
 	q.Set("room", "1001")
 	u.RawQuery = q.Encode()
