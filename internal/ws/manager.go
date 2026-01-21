@@ -35,6 +35,9 @@ type Manager struct {
 	// Clients map[*Client]bool
 
 	mu sync.RWMutex // Protects the Rooms map
+	//Read and write mutex lock
+	//RLock() when multiple routines read room map to broadcast simultaneously,
+	//non blocking
 
 	// RedisClient: the connection to the Redis server.
 	RedisClient *redis.Client
@@ -44,8 +47,7 @@ type Manager struct {
 }
 
 const (
-	RedisChannel = "chat_redis"
-	KafkaTopic   = "danmaku_save_topic" // Topic name for Kafka
+	KafkaTopic = "danmaku_save_topic" // Topic name for Kafka
 )
 
 func NewManager() *Manager {
@@ -63,47 +65,19 @@ func NewManager() *Manager {
 
 // Creates the main loop for the manager.
 func (m *Manager) Start() {
-	// Start a separate goroutine to subscribe to Redis messages.
-	go m.subscribeToRedis()
+	logger.Log.Info("[MANAGER] Multi-room Manager started")
 
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
-		// 1. New client connecting
 		case client := <-m.Register:
-			m.Clients[client] = true
-			logger.Log.Info(
-				"[MANAGER] New client connected",
-				zap.Uint64("userID", client.UserID), zap.Int("total", len(m.Clients)))
-			// Increment online count in Redis
-			m.RedisClient.Incr(context.Background(), KeyOnlineCount)
-			// Send recent history (cached in Redis) to the new user
-			// go m.sendRecentHistory(client)
-		// 2. Client disconnecting
+			m.handleRegister(client)
 		case client := <-m.Unregister:
-			if _, ok := m.Clients[client]; ok {
-				delete(m.Clients, client)
-				// close send channel to prevent GoRoutine leak
-				close(client.Send)
-				logger.Log.Info(
-					"[MANAGER] Client disconnected",
-					zap.Uint64("userID", client.UserID),
-					zap.Int("total", len(m.Clients)),
-				)
-				// Decrement online count in Redis
-				m.RedisClient.Decr(context.Background(), KeyOnlineCount)
-			}
-
+			m.handleUnregister(client)
 		case message := <-m.Broadcast:
-			// Publish the message to the "RedisChannel" in Redis.
-			err := m.RedisClient.Publish(context.Background(), RedisChannel, message).Err()
-			if err != nil {
-				logger.Log.Error("[MANAGER]Error publishing to Redis: %v", zap.Error(err))
-			} else {
-				logger.Log.Info("[MANAGER]Message published to Redis", zap.ByteString("message", message))
-			}
+			m.publishToRedis(message)
 			// Produce to Kafka (For Storage/Persistence)
 			// 'message' is already a JSON bytes containing user info & content.
 			kafkaMsg := &sarama.ProducerMessage{
@@ -143,37 +117,116 @@ func (m *Manager) Start() {
 			// 		delete(m.Clients, conn)
 			// 	}
 			// }
-		// --- Time to Broadcast Stats ---
 		case <-ticker.C:
 			m.broadcastStats()
 		}
 	}
 }
 
-// subscribeToRedis listens for messages from Redis and broadcasts them locally.
-func (m *Manager) subscribeToRedis() {
-	// Subscribe to the channel.
+func (m *Manager) handleRegister(client *Client) {
+	//write lock
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 1. Initialize room map if it's the first client in this room on THIS server
+	if _, ok := m.Rooms[client.RoomID]; !ok {
+		m.Rooms[client.RoomID] = make(map[*Client]bool)
+		// 2. Start a background goroutine to listen to THIS room's Redis channel
+		go m.subscribeToRoom(client.RoomID)
+		logger.Log.Info("[MANAGER] New room created on server", zap.String("room", client.RoomID))
+	}
+
+	m.Rooms[client.RoomID][client] = true
+	// Increment online count in Redis
+	key := fmt.Sprintf("room:%s:onlinecount", client.RoomID)
+	m.RedisClient.Incr(context.Background(), key)
+	logger.Log.Info("[MANAGER] Client registered",
+		zap.Uint64("uid", client.UserID),
+		zap.String("room", client.RoomID),
+		zap.Int("total", len(m.Rooms[client.RoomID])))
+}
+
+func (m *Manager) handleUnregister(client *Client) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if clients, ok := m.Rooms[client.RoomID]; ok {
+		if _, ok := clients[client]; ok {
+			delete(clients, client)
+			close(client.Send)
+			logger.Log.Info(
+				"[MANAGER] Client disconnected",
+				zap.Uint64("userID", client.UserID),
+				zap.Int("total", len(clients)),
+			)
+			// If room is empty on this server, remove the room entry
+			if len(clients) == 0 {
+				delete(m.Rooms, client.RoomID)
+				// Note: In production, you'd also need a way to stop the Redis subscription goroutine
+			}
+			// Decrement online count in Redis
+			key := fmt.Sprintf("room:%s:onlinecount", client.RoomID)
+			m.RedisClient.Decr(context.Background(), key)
+		}
+	}
+}
+
+func (m *Manager) publishToRedis(message []byte) {
+	// 1. Extract RoomID from the data (assuming DanmakuMessage inside)
+	// For simplicity, let's assume we pass RoomID in the Broadcast channel or parse it
+	// Here, we use a placeholder logic:
+	roomID := "1001" // In reality, parse this from the message or wrap it
+
+	channelName := fmt.Sprintf("room:%s:pubsub", roomID)
+	payload, _ := json.Marshal(message)
+
+	// Publish the message to the channelName in Redis.
+	err := m.RedisClient.Publish(context.Background(), channelName, payload).Err()
+	if err != nil {
+		logger.Log.Error("[MANAGER]Error publishing to Redis",
+			zap.String("room", roomID),
+			zap.Error(err))
+	} else {
+		logger.Log.Info("[MANAGER]Message published to Redis",
+			zap.String("room", roomID),
+			zap.ByteString("message", message))
+	}
+	
+}
+
+// subscribeToRoom listens to a specific Redis channel for a room
+func (m *Manager) subscribeToRoom(roomID string) {
+	// Channel name: e.g., "room:1001:pubsub"
+	channelName := fmt.Sprintf("room:%s:pubsub", roomID)
 	//context.Background(): a default context that never cancels, never expires, and has no values.
 	//or context.WithTimeOut(...,3*time.Second)
-	pubsub := m.RedisClient.Subscribe(context.Background(), RedisChannel)
+	pubsub := m.RedisClient.Subscribe(context.Background(), channelName)
 	defer pubsub.Close()
-
-	// Go channel to receive Redis messages.
-	// read only
+	// Go channel to receive Redis messages(read only)
 	ch := pubsub.Channel()
 
 	// Loop over messages received from Redis.
 	for msg := range ch {
 		// msg.Payload is the JSON string
-		// Now we broadcast this message to all LOCAL clients.
-		for client := range m.Clients {
+		// Now we broadcast this message to all local clients in this room.
+		m.broadcastToLocalRoom(roomID, []byte(msg.Payload))
+	}
+}
+
+func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
+	//read lock
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if clients, ok := m.Rooms[roomID]; ok {
+		for client := range clients {
 			select {
-			//msg.Payload:string
-			case client.Send <- []byte(msg.Payload):
+			case client.Send <- payload:
 			default:
-				// If client's send buffer is full, close and remove to prevent blocking.
+				// If client buffer is full, we don't block the whole room
+				//close and remove to prevent blocking.
 				close(client.Send)
-				delete(m.Clients, client)
+				delete(clients, client)
 			}
 		}
 	}
