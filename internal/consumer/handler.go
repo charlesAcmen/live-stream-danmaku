@@ -131,26 +131,32 @@ func (h *DanmakuHandler) processMessage(msg *sarama.ConsumerMessage) {
 
 // flushDB writes the buffered messages to the database in a single batch.
 func (h *DanmakuHandler) flushDB() {
+	var toFlush []*model.DanmakuMessage
+
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	// defer h.mu.Unlock()
 	// Optimization: Don't query DB if buffer is emptys
 	if len(h.buffer) == 0 {
+		h.mu.Unlock()
 		return
 	}
+	toFlush = h.buffer
+	h.buffer = make([]*model.DanmakuMessage, 0, h.batchSize) // 快速替换
+	h.mu.Unlock()
 
-	count := len(h.buffer)
+	count := len(toFlush)
 	logger.Log.Debug("[KAFKA HANDLER]Flushing data to DB", zap.Int("count", count))
 
 	// Simple Retry Logic (For transient DB failures)
 	maxRetries := MaxDBRetries
 	for i := 0; i < maxRetries; i++ {
 		// Call Repo layer to execute bulk insert
-		err := h.repo.CreateInBatches(h.buffer)
+		err := h.repo.CreateInBatches(toFlush)
 		if err == nil {
 			// Success
 			logger.Log.Info("[KAFKA HANDLER]Saved messages to MySQL", zap.Int("count", count))
 			// Clear buffer (keep capacity)
-			h.buffer = h.buffer[:0]
+			// h.buffer = h.buffer[:0]
 			return
 		}
 		// Failure
@@ -163,5 +169,5 @@ func (h *DanmakuHandler) flushDB() {
 	// If all retries fail, data is dropped here.
 	// Future improvement: Write to local file or error topic.
 	logger.Log.Error("[KAFKA HANDLER] Final failure: Data dropped", zap.Int("count", count))
-	h.buffer = h.buffer[:0] // Force clear to prevent OOM
+	// h.buffer = h.buffer[:0] // Force clear to prevent OOM
 }
