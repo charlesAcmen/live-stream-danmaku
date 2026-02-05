@@ -1,13 +1,15 @@
 package infra
 
 import (
+	"time"
+
 	"github.com/IBM/sarama"
 	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"go.uber.org/zap"
 )
 
 func InitKafkaProducer() sarama.AsyncProducer {
-	// 2. Init Kafka Producer
+	// Init Kafka Producer
 	// Configure Sarama settings
 	config := sarama.NewConfig()
 	config.ChannelBufferSize = 4096 // Allow more buffering in memory
@@ -16,6 +18,16 @@ func InitKafkaProducer() sarama.AsyncProducer {
 	//   - WaitForLocal: Leader returns OK after receiving
 	//   - WaitForAll: all follower synced
 	config.Producer.RequiredAcks = sarama.WaitForAll
+
+	// Snappy is the standard for Kafka logging (Google developed, fast/low CPU).
+	// This drastically reduces network bandwidth usage.
+	config.Producer.Compression = sarama.CompressionSnappy
+
+	// Improve Batching.
+	// Sarama will wait up to 10ms or until batch size is reached.
+	// This reduces the number of requests sent to the broker.
+	config.Producer.Flush.Frequency = 10 * time.Millisecond
+
 	// We need to return success info to avoid errors in SyncProducer.
 	// config.Producer.Return.Successes = true
 
