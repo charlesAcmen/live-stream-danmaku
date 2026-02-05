@@ -1,5 +1,15 @@
 package consumer
 
+/*
+DB is at-most-once
+Kafka is at-least-once:
+mark first flush second
+flush fail->retry
+retry fail->drop
+offset still commits automatically
+
+does not guarantee flush in db
+*/
 import (
 	"context"
 	"encoding/json"
