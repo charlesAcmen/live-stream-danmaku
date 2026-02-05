@@ -1,8 +1,9 @@
 package consumer
 
 import (
+	"context"
 	"encoding/json"
-	"sync"
+	"sync" //buffer pool
 	"time"
 
 	"github.com/IBM/sarama"
@@ -18,10 +19,11 @@ import (
 // 2. Flush to DB periodically or when buffer is full.
 // 3. Handle Kafka session lifecycle (Setup/Cleanup).
 type DanmakuHandler struct {
-	repo      *repo.MessageRepo
-	buffer    []*model.DanmakuMessage
-	batchSize int
-	mu        sync.Mutex // protect buffer
+	repo       *repo.MessageRepo
+	buffer     []*model.DanmakuMessage
+	batchSize  int
+	mu         sync.Mutex // protect buffer
+	bufferPool *sync.Pool //pool for memory reuse
 }
 
 const (
@@ -40,6 +42,11 @@ func NewDanmakuHandler(r *repo.MessageRepo, batchSize int) *DanmakuHandler {
 		repo:      r,
 		buffer:    make([]*model.DanmakuMessage, 0, batchSize),
 		batchSize: batchSize,
+		bufferPool: &sync.Pool{
+			New: func() interface{} {
+				return make([]*model.DanmakuMessage, 0, batchSize)
+			}, //New func for pool
+		},
 	}
 }
 
@@ -56,7 +63,7 @@ func (h *DanmakuHandler) Cleanup(sarama.ConsumerGroupSession) error {
 	// This prevents data loss during rebalancing(when Kafka assigns
 	// partitions to other consumers)
 	// or during graceful shutdown.
-	h.flushDB()
+	h.flushDB(context.Background())
 	logger.Log.Info("[KAFKA HANDLER] Consumer group session ended")
 	return nil
 }
@@ -79,7 +86,8 @@ func (h *DanmakuHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 				return nil
 			}
 			// Process business logic(parse JSON, add to buffer)
-			h.processMessage(msg)
+			// Pass session context down
+			h.processMessage(session.Context(), msg)
 
 			// Mark the message as consumed.
 			// Note: This only marks it in memory.
@@ -87,7 +95,7 @@ func (h *DanmakuHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 			session.MarkMessage(msg, "")
 
 		case <-ticker.C:
-			h.flushDB()
+			h.flushDB(session.Context())
 
 		// Case 3: Context canceled (Graceful Shutdown)
 		case <-session.Context().Done():
@@ -97,7 +105,7 @@ func (h *DanmakuHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 }
 
 // processMessage parses the raw Kafka message and appends it to the local buffer.
-func (h *DanmakuHandler) processMessage(msg *sarama.ConsumerMessage) {
+func (h *DanmakuHandler) processMessage(ctx context.Context, msg *sarama.ConsumerMessage) {
 	// 1. Unmarshal outer envelope (WsPacket)
 	var packet model.WsPacket
 	if err := json.Unmarshal(msg.Value, &packet); err != nil {
@@ -125,14 +133,15 @@ func (h *DanmakuHandler) processMessage(msg *sarama.ConsumerMessage) {
 
 	// 5. Trigger flush if buffer is full
 	if shouldFlush {
-		h.flushDB()
+		h.flushDB(ctx)
 	}
 }
 
 // flushDB writes the buffered messages to the database in a single batch.
-func (h *DanmakuHandler) flushDB() {
+func (h *DanmakuHandler) flushDB(ctx context.Context) {
 	var toFlush []*model.DanmakuMessage
 
+	// --- Critical Section: Swap Buffers ---
 	h.mu.Lock()
 	// defer h.mu.Unlock()
 	// Optimization: Don't query DB if buffer is emptys
@@ -141,29 +150,51 @@ func (h *DanmakuHandler) flushDB() {
 		return
 	}
 	toFlush = h.buffer
-	h.buffer = make([]*model.DanmakuMessage, 0, h.batchSize) // 快速替换
+	// Replace h.buffer with a fresh slice from the pool (Double Buffering)
+	// Type assertion is safe here because New() returns correct type
+	h.buffer = h.bufferPool.Get().([]*model.DanmakuMessage)
 	h.mu.Unlock()
 
 	count := len(toFlush)
 	logger.Log.Debug("[KAFKA HANDLER]Flushing data to DB", zap.Int("count", count))
 
+	// Ensure we return the slice to the pool after processing
+	defer func() {
+		// Reset length to 0 but keep capacity
+		toFlush = toFlush[:0]
+		h.bufferPool.Put(toFlush)
+	}()
+
 	// Simple Retry Logic (For transient DB failures)
 	maxRetries := MaxDBRetries
 	for i := 0; i < maxRetries; i++ {
-		// Call Repo layer to execute bulk insert
-		err := h.repo.CreateInBatches(toFlush)
-		if err == nil {
-			// Success
-			logger.Log.Info("[KAFKA HANDLER]Saved messages to MySQL", zap.Int("count", count))
-			// Clear buffer (keep capacity)
-			// h.buffer = h.buffer[:0]
-			return
+		select {
+		case <-ctx.Done():
+			logger.Log.Warn("[KAFKA HANDLER] Context cancelled, aborting retry", zap.Int("dropped_count", count))
+			return // Exit immediately without retrying
+		default:
+			// Call Repo layer to execute bulk insert
+			err := h.repo.CreateInBatches(toFlush)
+			if err == nil {
+				// Success
+				logger.Log.Info("[KAFKA HANDLER]Saved messages to MySQL", zap.Int("count", count))
+				// Clear buffer (keep capacity)
+				// h.buffer = h.buffer[:0]
+				return
+			}
+			// Failure
+			logger.Log.Warn("[KAFKA HANDLER] Insert failed, retrying...",
+				zap.Int("attempt", i+1),
+				zap.Error(err))
+			// Wait before retry, but listen to context cancellation
+			select {
+			case <-ctx.Done():
+				logger.Log.Warn("[KAFKA HANDLER] Context cancelled during backoff, aborting", zap.Int("dropped_count", count))
+				return
+			case <-time.After(500 * time.Millisecond):
+				// Continue loop
+			}
 		}
-		// Failure
-		logger.Log.Warn("[KAFKA HANDLER] Insert failed, retrying...",
-			zap.Int("attempt", i+1),
-			zap.Error(err))
-		time.Sleep(500 * time.Millisecond)
 	}
 
 	// If all retries fail, data is dropped here.
