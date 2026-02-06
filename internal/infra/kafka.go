@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func InitKafkaProducer() sarama.AsyncProducer {
+func InitKafkaProducer(brokers []string) sarama.AsyncProducer {
 	// Init Kafka Producer
 	// Configure Sarama settings
 	config := sarama.NewConfig()
