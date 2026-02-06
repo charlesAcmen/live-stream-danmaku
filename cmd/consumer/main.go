@@ -7,7 +7,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/IBM/sarama"
 	"go.uber.org/zap"
 
 	"github.com/charlesAcmen/livestream-danmaku/internal/consumer"
@@ -35,14 +34,6 @@ func main() {
 
 	messageRepo := repo.NewMessageRepo(db)
 	handler := consumer.NewDanmakuHandler(messageRepo, BatchSize)
-
-	// 3. configure Kafka Consumer Group
-	config := sarama.NewConfig()
-	config.Consumer.Return.Errors = true
-	// OffsetOldest: If the group is new, start from the very beginning.
-	// This ensures we don't miss messages sent while the consumer was down.
-	// OffsetNewest: discard history
-	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 
 	brokers := []string{"127.0.0.1:9092"}
 
