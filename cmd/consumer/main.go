@@ -46,19 +46,8 @@ func main() {
 
 	brokers := []string{"127.0.0.1:9092"}
 
-	// create consumer group
-	group, err := sarama.NewConsumerGroup(brokers, KafkaGroupID, config)
-	if err != nil {
-		logger.Log.Fatal("[KAFKA CONSUMER]Failed to create consumer group", zap.Error(err))
-	}
+	group := infra.InitKafkaConsumerGroup(brokers, KafkaGroupID)
 	defer group.Close()
-
-	// 4. listen from Kafka errors
-	go func() {
-		for err := range group.Errors() {
-			logger.Log.Error("[KAFKA CONSUMER]Kafka consumer error", zap.Error(err))
-		}
-	}()
 
 	// 5. Setup Graceful Shutdown
 	// Create a context that can be canceled.
