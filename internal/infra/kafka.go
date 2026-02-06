@@ -61,6 +61,38 @@ func InitKafkaProducer() sarama.AsyncProducer {
 	return producer
 }
 
+// InitKafkaConsumerGroup initializes the consumer group with high-throughput settings.
+func InitKafkaConsumerGroup(brokers []string, groupID string) sarama.ConsumerGroup {
+	config := sarama.NewConfig()
+	// OffsetOldest: If the group is new, start from the very beginning.
+	// This ensures we don't miss messages sent while the consumer was down.
+	// OffsetNewest: discard history
+	config.Consumer.Offsets.Initial = sarama.OffsetOldest
+
+	// Performance: Fetch Settings (Critical for Batch Processing)
+	// Default is 1MB. Increase to 5MB to reduce network round-trips.
+	// We want to fetch a large chunk of data to feed our batch handler.
+	config.Consumer.Fetch.Default = 5 * 1024 * 1024
+	// Limit error logging for debugging
+	config.Consumer.Return.Errors = true
+
+	// Connect to Brokers
+	group, err := sarama.NewConsumerGroup(brokers, groupID, config)
+	if err != nil {
+		logger.Log.Panic("[KAFKA INFRA] Failed to create consumer group", zap.Error(err))
+	}
+
+	// Monitor Errors in background
+	// It is safer to handle errors here (logging) than leaving the channel full blocking the consumer.
+	go func() {
+		for err := range group.Errors() {
+			logger.Log.Error("[KAFKA INFRA] Consumer Group Error", zap.Error(err))
+		}
+	}()
+
+	return group
+}
+
 // PushToInput acts as a helper to hide the select-default logic
 func PushToInput(producer sarama.AsyncProducer, topic string, payload []byte) {
 	// Produce to Kafka (For Storage/Persistence)
