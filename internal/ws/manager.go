@@ -128,7 +128,7 @@ func (m *Manager) handleUnregister(client *Client) {
 	}
 }
 func (m *Manager) handleBroadcast(packet *model.WsPacket) {
-	// Serialize the envelope for Redis distribution
+	// Serialize the envelope for distribution
 	payload, _ := json.Marshal(packet)
 
 	switch packet.Type {
