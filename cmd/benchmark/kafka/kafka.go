@@ -25,7 +25,8 @@ func main() {
 
 	// 2. Init Producer (Using your optimized code)
 	logger.Log.Info("[BENCHMARK] Initializing Producer...")
-	producer := infra.InitKafkaProducer()
+	brokers := []string{"127.0.0.1:9092"}
+	producer := infra.InitKafkaProducer(brokers)
 
 	// Critical: Close producer on exit to flush remaining buffered messages
 	defer func() {

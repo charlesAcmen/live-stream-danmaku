@@ -48,8 +48,9 @@ const (
 )
 
 func NewManager() *Manager {
+	brokers := []string{"127.0.0.1:9092"}
 	rdb := infra.InitRedisClient()
-	producer := infra.InitKafkaProducer()
+	producer := infra.InitKafkaProducer(brokers)
 	return &Manager{
 		Register:      make(chan *Client),
 		Unregister:    make(chan *Client),
