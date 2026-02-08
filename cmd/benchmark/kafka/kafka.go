@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/IBM/sarama"
 	"github.com/charlesAcmen/livestream-danmaku/internal/infra"
 	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"github.com/charlesAcmen/livestream-danmaku/internal/model"
@@ -14,9 +15,16 @@ import (
 
 const (
 	KafkaTopic    = "danmaku_save_topic"
-	TotalMessages = 10000 // Test with 100k messages
-	Goroutines    = 10    // Simulate concurrent clients
+	TotalMessages = 100000 // Test with 100k messages
+	Goroutines    = 10     // Simulate concurrent clients
 )
+
+func sendDanmaku(producer sarama.AsyncProducer, topic string, payload []byte) {
+	producer.Input() <- &sarama.ProducerMessage{
+		Topic: topic,
+		Value: sarama.StringEncoder(payload),
+	}
+}
 
 func main() {
 	// 1. Init Logger
@@ -76,8 +84,7 @@ func main() {
 		go func(workerID int) {
 			defer wg.Done()
 			for j := 0; j < msgsPerWorker; j++ {
-				// Assuming your PushToInput signature is (producer, topic, payload)
-				infra.PushToInput(producer, KafkaTopic, payload)
+				sendDanmaku(producer, KafkaTopic, payload)
 				atomic.AddInt64(&sentCount, 1)
 				time.Sleep(1 * time.Millisecond)
 			}
