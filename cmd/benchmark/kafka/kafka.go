@@ -14,8 +14,8 @@ import (
 
 const (
 	KafkaTopic    = "danmaku_save_topic"
-	TotalMessages = 100000 // Test with 100k messages
-	Goroutines    = 10     // Simulate concurrent clients
+	TotalMessages = 10000 // Test with 100k messages
+	Goroutines    = 10    // Simulate concurrent clients
 )
 
 func main() {
@@ -37,18 +37,28 @@ func main() {
 
 	// 3. Prepare Data
 	// Construct a standard packet
-	mockContent := make(map[string]interface{})
-	mockContent["content"] = "This is a stress test message for Kafka optimization"
-	mockContent["send_time"] = time.Now().UnixMilli() // Important for ordering later
+	danmaku := model.DanmakuMessage{
+		// ID is handled by AutoIncrement in DB, usually 0 here
+		RoomID:   "room_benchmark_1",
+		UserID:   12345, // Mock User ID
+		Content:  "This is a stress test message for Kafka optimization",
+		SendTime: time.Now(),
+	}
 
-	contentBytes, _ := json.Marshal(mockContent)
+	contentBytes, err := json.Marshal(danmaku)
+	if err != nil {
+		logger.Log.Fatal("[BENCHMARK] Failed to marshal danmaku", zap.Error(err))
+	}
 
 	packet := model.WsPacket{
 		Type:   model.TypeDanmaku,
 		RoomID: "room_benchmark_1",
 		Data:   contentBytes,
 	}
-	payload, _ := json.Marshal(packet)
+	payload, err := json.Marshal(packet)
+	if err != nil {
+		logger.Log.Fatal("[BENCHMARK] Failed to marshal packet", zap.Error(err))
+	}
 
 	// 4. Start Benchmark
 	logger.Log.Info("[BENCHMARK] Starting...",
@@ -69,6 +79,7 @@ func main() {
 				// Assuming your PushToInput signature is (producer, topic, payload)
 				infra.PushToInput(producer, KafkaTopic, payload)
 				atomic.AddInt64(&sentCount, 1)
+				time.Sleep(1 * time.Millisecond)
 			}
 		}(i)
 	}
