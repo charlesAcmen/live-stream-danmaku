@@ -18,7 +18,7 @@ import (
 const (
 	KafkaTopic   = "danmaku_save_topic"
 	KafkaGroupID = "danmaku_group_v1" // consumer group ID
-	BatchSize    = 100
+	BatchSize    = 1000
 )
 
 func main() {

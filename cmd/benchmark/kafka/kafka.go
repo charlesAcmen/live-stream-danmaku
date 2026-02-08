@@ -15,8 +15,8 @@ import (
 
 const (
 	KafkaTopic    = "danmaku_save_topic"
-	TotalMessages = 100000 // Test with 100k messages
-	Goroutines    = 10     // Simulate concurrent clients
+	TotalMessages = 500000 // Test with 100k messages
+	Goroutines    = 100    // Simulate concurrent clients
 )
 
 func sendDanmaku(producer sarama.AsyncProducer, topic string, payload []byte) {
