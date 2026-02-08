@@ -14,10 +14,6 @@ type MessageRepo struct {
 	db *gorm.DB
 }
 
-const (
-	BatchSize = 100
-)
-
 // NewMessageRepo creates a new repository instance.
 func NewMessageRepo(db *gorm.DB) *MessageRepo {
 	return &MessageRepo{db: db}
@@ -27,7 +23,12 @@ func NewMessageRepo(db *gorm.DB) *MessageRepo {
 // This encapsulates the GORM logic so the Consumer doesn't need to know about GORM directly.
 // Used by the Kafka Consumer.
 func (r *MessageRepo) CreateInBatches(msgs []*model.DanmakuMessage) error {
-	return r.db.CreateInBatches(msgs, BatchSize).Error
+	if len(msgs) == 0 {
+		return nil
+	}
+	// Use len(msgs) as the batch size.
+	// This means "Insert all provided messages in one single SQL statement".
+	return r.db.CreateInBatches(msgs, len(msgs)).Error
 }
 
 // GetPlayBackDanmaku fetches messages for video playback
