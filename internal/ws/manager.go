@@ -131,6 +131,7 @@ func (m *Manager) handleUnregister(client *Client) {
 			)
 			// Clean up room and STOP subscription if last client leaves
 			if len(clients) == 0 {
+				delete(m.Rooms, client.RoomID)
 				if cancel, exists := m.cancelSub[client.RoomID]; exists {
 					cancel() // Signals subscribeToRoom to exit
 					delete(m.cancelSub, client.RoomID)
