@@ -27,8 +27,7 @@ type Manager struct {
 	Broadcast chan *model.WsPacket
 
 	// Rooms maps RoomID to a set of Clients in that room
-	// map[RoomID]map[ClientPointer]exists
-	Rooms map[string]map[*Client]bool
+	Rooms map[string]map[*Client]struct{}
 
 	//Store cancel functions to stop Redis subscriptions
 	cancelSub map[string]context.CancelFunc
@@ -59,7 +58,7 @@ func NewManager() *Manager {
 		Register:      make(chan *Client),
 		Unregister:    make(chan *Client),
 		Broadcast:     make(chan *model.WsPacket, 1024), // Buffer to handle spikes
-		Rooms:         make(map[string]map[*Client]bool),
+		Rooms:         make(map[string]map[*Client]struct{}),
 		cancelSub:     make(map[string]context.CancelFunc),
 		RedisClient:   rdb,
 		KafkaProducer: producer,
@@ -94,7 +93,7 @@ func (m *Manager) handleRegister(client *Client) {
 
 	// 1. Initialize room map if it's the first client in this room on THIS server
 	if _, ok := m.Rooms[client.RoomID]; !ok {
-		m.Rooms[client.RoomID] = make(map[*Client]bool)
+		m.Rooms[client.RoomID] = make(map[*Client]struct{})
 		// 1. Create a cancelable context for this room's subscription
 		// no timeout:cancel() is called when empty room,server closing or unsubscribe
 		ctx, cancel := context.WithCancel(context.Background())
@@ -105,7 +104,8 @@ func (m *Manager) handleRegister(client *Client) {
 		logger.Log.Info("[MANAGER] New room created on server", zap.String("room", client.RoomID))
 	}
 
-	m.Rooms[client.RoomID][client] = true
+	//struct{} is type,second {} is initializing instance
+	m.Rooms[client.RoomID][client] = struct{}{}
 
 	// Async Redis update: Online Count
 	// because Incr involves network I/O,TCP round trip,queue in redis,
