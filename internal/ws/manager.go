@@ -46,7 +46,6 @@ type Manager struct {
 }
 
 const (
-	KafkaTopic        = "danmaku_save_topic" // Topic name for Kafka
 	BroadCastInterVal = 3 * time.Second
 )
 
@@ -167,7 +166,7 @@ func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 			infra.PublishToRoom(m.RedisClient, p.RoomID, data)
 			// 2. Process data persistence via Kafka
 			// We only archive specific types
-			infra.PushToInput(m.KafkaProducer, KafkaTopic, data)
+			infra.PushToInput(m.KafkaProducer, infra.DanmakuSaveTopic, data)
 		}(packet, payload)
 	// Case B: Like (User generated)
 	// Send to Redis (real-time).

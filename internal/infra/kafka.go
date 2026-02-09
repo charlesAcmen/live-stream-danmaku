@@ -8,6 +8,10 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	DanmakuSaveTopic = "danmaku_save_topic" // Topic name for danmaku saving
+)
+
 func InitKafkaProducer(brokers []string) sarama.AsyncProducer {
 	// Init Kafka Producer
 	// Configure Sarama settings
@@ -42,7 +46,7 @@ func InitKafkaProducer(brokers []string) sarama.AsyncProducer {
 	// Connect to Kafka (running on localhost:9092 (in .yaml) via Docker)1
 
 	// producer, err := sarama.NewSyncProducer([]string{"localhost:9092"}, config)
-	producer, err := sarama.NewAsyncProducer([]string{"localhost:9092"}, config)
+	producer, err := sarama.NewAsyncProducer(brokers, config)
 	if err != nil {
 		// In production, we might want to retry or fail gracefully.
 		// For now, we panic because without Kafka, persistence fails.
