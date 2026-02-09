@@ -29,7 +29,11 @@ type Manager struct {
 	// Rooms maps RoomID to a set of Clients in that room
 	// map[RoomID]map[ClientPointer]exists
 	Rooms map[string]map[*Client]bool
-	mu    sync.RWMutex // Protects the Rooms map
+
+	//Store cancel functions to stop Redis subscriptions
+	cancelSub map[string]context.CancelFunc
+
+	mu sync.RWMutex // Protects the Rooms map
 
 	//Read and write mutex lock
 	//RLock() when multiple routines read room map to broadcast simultaneously,
@@ -56,6 +60,7 @@ func NewManager() *Manager {
 		Unregister:    make(chan *Client),
 		Broadcast:     make(chan *model.WsPacket, 1024), // Buffer to handle spikes
 		Rooms:         make(map[string]map[*Client]bool),
+		cancelSub:     make(map[string]context.CancelFunc),
 		RedisClient:   rdb,
 		KafkaProducer: producer,
 	}
@@ -90,15 +95,25 @@ func (m *Manager) handleRegister(client *Client) {
 	// 1. Initialize room map if it's the first client in this room on THIS server
 	if _, ok := m.Rooms[client.RoomID]; !ok {
 		m.Rooms[client.RoomID] = make(map[*Client]bool)
+		// 1. Create a cancelable context for this room's subscription
+		ctx, cancel := context.WithCancel(context.Background())
+		m.cancelSub[client.RoomID] = cancel
 		// 2. Start a background goroutine to listen to THIS room's Redis channel
-		go m.subscribeToRoom(client.RoomID)
+		// Pass context to subscriber
+		go m.subscribeToRoom(ctx, client.RoomID)
 		logger.Log.Info("[MANAGER] New room created on server", zap.String("room", client.RoomID))
 	}
 
 	m.Rooms[client.RoomID][client] = true
-	// Increment online count in Redis
-	key := fmt.Sprintf("room:%s:onlinecount", client.RoomID)
-	m.RedisClient.Incr(context.Background(), key)
+
+	// Async Redis update: Online Count
+	// because Incr involves network I/O,TCP round trip,queue in redis,
+	// potentially blocking,timeout,shaking etc.
+	go func(rid string) {
+		ctx, _ := context.WithTimeout(context.Background(), 2*time.Second)
+		// Increment online count in Redis
+		m.RedisClient.Incr(ctx, fmt.Sprintf("room:%s:onlinecount", rid))
+	}(client.RoomID)
 	logger.Log.Info("[MANAGER] Client registered",
 		zap.Uint64("uid", client.UserID),
 		zap.String("room", client.RoomID),
@@ -202,21 +217,31 @@ func (m *Manager) broadcastStats() {
 }
 
 // subscribeToRoom listens to a specific Redis channel for a room
-func (m *Manager) subscribeToRoom(roomID string) {
+func (m *Manager) subscribeToRoom(ctx context.Context, roomID string) {
 	// Channel name: e.g., "room:1001:pubsub"
 	channelName := fmt.Sprintf("room:%s:pubsub", roomID)
 	//context.Background(): a default context that never cancels, never expires, and has no values.
 	//or context.WithTimeOut(...,3*time.Second)
-	pubsub := m.RedisClient.Subscribe(context.Background(), channelName)
+	//here ctx is cancellable
+	pubsub := m.RedisClient.Subscribe(ctx, channelName)
 	defer pubsub.Close()
 	// Go channel to receive Redis messages(read only)
 	ch := pubsub.Channel()
 
-	// Loop over messages received from Redis.
-	for msg := range ch {
-		// msg.Payload is the JSON string
-		// Now we broadcast this message to all local clients in this room.
-		m.broadcastToLocalRoom(roomID, []byte(msg.Payload))
+	for {
+		select {
+		case <-ctx.Done():
+			// Graceful exit when cancel() is called
+			return
+		// Loop over messages received from Redis.
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			// msg.Payload is the JSON string
+			// Now we broadcast this message to all local clients in this room.
+			m.broadcastToLocalRoom(roomID, []byte(msg.Payload))
+		}
 	}
 }
 

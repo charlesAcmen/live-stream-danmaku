@@ -30,7 +30,7 @@ func main() {
 	//IMPORTANT:
 	//initialize Global WebSocket Handlers
 	//logic handler functions[Danmaku,Like,Broadcast stats]
-	ws.InitHandlers()
+	ws.RegisterActionHandlers()
 
 	// 1. Init DB (Shared by all layers)
 	db := infra.InitDB()
