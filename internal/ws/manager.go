@@ -47,6 +47,7 @@ type Manager struct {
 
 const (
 	BroadCastInterVal = 3 * time.Second
+	BroadcastChanSize = 1024
 )
 
 func NewManager() *Manager {
@@ -56,7 +57,7 @@ func NewManager() *Manager {
 	return &Manager{
 		Register:      make(chan *Client),
 		Unregister:    make(chan *Client),
-		Broadcast:     make(chan *model.WsPacket, 1024), // Buffer to handle spikes
+		Broadcast:     make(chan *model.WsPacket, BroadcastChanSize), // Buffer to handle spikes
 		Rooms:         make(map[string]map[*Client]struct{}),
 		cancelSub:     make(map[string]context.CancelFunc),
 		RedisClient:   rdb,
@@ -68,8 +69,8 @@ func NewManager() *Manager {
 func (m *Manager) Start() {
 	logger.Log.Info("[MANAGER] Multi-room Manager started")
 
-	ticker := time.NewTicker(BroadCastInterVal)
-	defer ticker.Stop()
+	statsTicker := time.NewTicker(BroadCastInterVal)
+	defer statsTicker.Stop()
 
 	for {
 		select {
@@ -79,7 +80,7 @@ func (m *Manager) Start() {
 			m.handleUnregister(client)
 		case packet := <-m.Broadcast:
 			m.handleBroadcast(packet)
-		case <-ticker.C:
+		case <-statsTicker.C:
 			m.broadcastStats()
 		}
 	}
@@ -109,9 +110,7 @@ func (m *Manager) handleRegister(client *Client) {
 	// Async Redis update: Online Count
 	// because Incr involves network I/O,TCP round trip,queue in redis,
 	// potentially blocking,timeout,shaking etc.
-	go func(rid string) {
-		infra.UpdateOnlineCount(m.RedisClient, rid, 1)
-	}(client.RoomID)
+	go infra.UpdateOnlineCount(m.RedisClient, client.RoomID, 1)
 	logger.Log.Info("[MANAGER] Client registered",
 		zap.Uint64("uid", client.UserID),
 		zap.String("room", client.RoomID),
