@@ -139,9 +139,7 @@ func (m *Manager) handleUnregister(client *Client) {
 				}
 			}
 			// Async Redis update: Decr Online Count
-			go func(rid string) {
-				infra.UpdateOnlineCount(m.RedisClient, rid, -1)
-			}(client.RoomID)
+			go infra.UpdateOnlineCount(m.RedisClient, client.RoomID, -1)
 		}
 	}
 }
@@ -161,26 +159,12 @@ func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 	// Why? Because Redis Sub goroutine will receive it and call broadcastToLocalRoom.
 	// If we call it here, the local user will see the message twice!
 	case model.TypeDanmaku:
-		// Async IO to Redis and Kafka
-		go func(p *model.WsPacket, data []byte) {
-			infra.PublishToRoom(m.RedisClient, p.RoomID, data)
-			// 2. Process data persistence via Kafka
-			// We only archive specific types
-			infra.PushToInput(m.KafkaProducer, infra.DanmakuSaveTopic, data)
-		}(packet, payload)
+		m.processDanmaku(packet.RoomID, payload)
 	// Case B: Like (User generated)
 	// Send to Redis (real-time).
 	// Skip Kafka (usually likes are just counters, detailed logs might not be needed).
 	case model.ActionLike:
-		// 1. Business Logic: Increment Redis Counter
-		// We need to peek inside the Data to know the "Count"
-		var cmd model.Like
-		if err := json.Unmarshal(packet.Data, &cmd); err == nil {
-			// Call Infra to increment
-			go func(rid string, count uint64) {
-				infra.IncrRoomLikes(m.RedisClient, packet.RoomID, cmd.Count)
-			}(packet.RoomID, cmd.Count)
-		}
+		m.processLike(packet)
 	// Case A: Stats (Generated locally, sent locally)
 	// Do NOT send to Redis (avoids broadcast storm).
 	// Do NOT send to Kafka (no need to save transient stats).
@@ -188,6 +172,32 @@ func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 		m.broadcastToLocalRoom(packet.RoomID, payload)
 	default:
 		logger.Log.Warn("[MANAGER] Unknown packet type", zap.Int("type", packet.Type))
+	}
+}
+
+// processDanmaku handles user messages.
+// Strategy: Persist to Kafka + Broadcast to All Servers (via Redis).
+func (m *Manager) processDanmaku(roomID string, data []byte) {
+	// Async IO to Redis and Kafka
+
+	// 1. Persistence (Kafka)
+	go infra.PublishToRoom(m.RedisClient, roomID, data)
+
+	// 2. Distribution (Redis Pub/Sub)
+	// This ensures clients on other servers also receive this danmaku.
+	go infra.PushToInput(m.KafkaProducer, infra.DanmakuSaveTopic, data)
+}
+
+// processLike handles user likes.
+// Strategy: Update State (Redis KV). Do NOT broadcast every single like to save bandwidth.
+// The Ticker will pick up the new count later.
+func (m *Manager) processLike(packet *model.WsPacket) {
+	// 1. Business Logic: Increment Redis Counter
+	// We need to peek inside the Data to know the "Count"
+	var cmd model.Like
+	if err := json.Unmarshal(packet.Data, &cmd); err == nil {
+		// Only update the counter in Redis.
+		go infra.IncrRoomLikes(m.RedisClient, packet.RoomID, cmd.Count)
 	}
 }
 
