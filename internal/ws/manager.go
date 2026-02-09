@@ -47,8 +47,9 @@ type Manager struct {
 }
 
 const (
-	KafkaTopic        = "danmaku_save_topic" // Topic name for Kafka
-	BroadCastInterVal = 3 * time.Second
+	KafkaTopic         = "danmaku_save_topic" // Topic name for Kafka
+	BroadCastInterVal  = 3 * time.Second
+	RedisCancelTimeout = 2 * time.Second
 )
 
 func NewManager() *Manager {
@@ -96,6 +97,7 @@ func (m *Manager) handleRegister(client *Client) {
 	if _, ok := m.Rooms[client.RoomID]; !ok {
 		m.Rooms[client.RoomID] = make(map[*Client]bool)
 		// 1. Create a cancelable context for this room's subscription
+		// no timeout:cancel() is called when empty room,server closing or unsubscribe
 		ctx, cancel := context.WithCancel(context.Background())
 		m.cancelSub[client.RoomID] = cancel
 		// 2. Start a background goroutine to listen to THIS room's Redis channel
@@ -110,7 +112,9 @@ func (m *Manager) handleRegister(client *Client) {
 	// because Incr involves network I/O,TCP round trip,queue in redis,
 	// potentially blocking,timeout,shaking etc.
 	go func(rid string) {
-		ctx, _ := context.WithTimeout(context.Background(), 2*time.Second)
+		//disposable cancel
+		ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
+		defer cancel()
 		// Increment online count in Redis
 		m.RedisClient.Incr(ctx, fmt.Sprintf("room:%s:onlinecount", rid))
 	}(client.RoomID)
@@ -132,14 +136,21 @@ func (m *Manager) handleUnregister(client *Client) {
 				zap.Uint64("userID", client.UserID),
 				zap.Int("total", len(clients)),
 			)
-			// If room is empty on this server, remove the room entry
+			// Clean up room and STOP subscription if last client leaves
 			if len(clients) == 0 {
-				delete(m.Rooms, client.RoomID)
-				// Note: In production, you'd also need a way to stop the Redis subscription goroutine
+				if cancel, exists := m.cancelSub[client.RoomID]; exists {
+					cancel() // Signals subscribeToRoom to exit
+					delete(m.cancelSub, client.RoomID)
+					logger.Log.Info("[MANAGER] Room subscription stopped", zap.String("room", client.RoomID))
+				}
 			}
-			// Decrement online count in Redis
-			key := fmt.Sprintf("room:%s:onlinecount", client.RoomID)
-			m.RedisClient.Decr(context.Background(), key)
+			// Async Redis update: Decr Online Count
+			go func(rid string) {
+				ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
+				defer cancel()
+				// Decrement online count in Redis
+				m.RedisClient.Decr(ctx, fmt.Sprintf("room:%s:onlinecount", rid))
+			}(client.RoomID)
 		}
 	}
 }
