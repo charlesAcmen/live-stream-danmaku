@@ -15,6 +15,7 @@ const (
 	KeyRoomPubSub = "room:%s:pubsub" // Channel for Redis Pub/Sub
 	KeyRoomLikes  = "room:%s:likes"  // Counter for likes
 	KeyRoomOnline = "room:%s:online" //Counter for online users
+	RedisCancelTimeout = 2 * time.Second
 )
 
 func InitRedisClient() *redis.Client {

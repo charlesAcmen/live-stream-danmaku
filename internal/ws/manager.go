@@ -47,9 +47,8 @@ type Manager struct {
 }
 
 const (
-	KafkaTopic         = "danmaku_save_topic" // Topic name for Kafka
-	BroadCastInterVal  = 3 * time.Second
-	RedisCancelTimeout = 2 * time.Second
+	KafkaTopic        = "danmaku_save_topic" // Topic name for Kafka
+	BroadCastInterVal = 3 * time.Second
 )
 
 func NewManager() *Manager {
@@ -113,10 +112,10 @@ func (m *Manager) handleRegister(client *Client) {
 	// potentially blocking,timeout,shaking etc.
 	go func(rid string) {
 		//disposable cancel
-		ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), infra.RedisCancelTimeout)
 		defer cancel()
 		// Increment online count in Redis
-		m.RedisClient.Incr(ctx, fmt.Sprintf("room:%s:onlinecount", rid))
+		m.RedisClient.Incr(ctx, fmt.Sprintf(infra.KeyRoomOnline, rid))
 	}(client.RoomID)
 	logger.Log.Info("[MANAGER] Client registered",
 		zap.Uint64("uid", client.UserID),
@@ -146,17 +145,21 @@ func (m *Manager) handleUnregister(client *Client) {
 			}
 			// Async Redis update: Decr Online Count
 			go func(rid string) {
-				ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
+				ctx, cancel := context.WithTimeout(context.Background(), infra.RedisCancelTimeout)
 				defer cancel()
 				// Decrement online count in Redis
-				m.RedisClient.Decr(ctx, fmt.Sprintf("room:%s:onlinecount", rid))
+				m.RedisClient.Decr(ctx, fmt.Sprintf(infra.KeyRoomOnline, rid))
 			}(client.RoomID)
 		}
 	}
 }
 func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 	// Serialize the envelope for distribution
-	payload, _ := json.Marshal(packet)
+	payload, err := json.Marshal(packet)
+	if err != nil {
+		logger.Log.Error("[MANAGER] Marshal failed", zap.Error(err))
+		return
+	}
 
 	switch packet.Type {
 	// Case A: Danmaku (User generated)
@@ -166,10 +169,13 @@ func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 	// Why? Because Redis Sub goroutine will receive it and call broadcastToLocalRoom.
 	// If we call it here, the local user will see the message twice!
 	case model.TypeDanmaku:
-		infra.PublishToRoom(m.RedisClient, packet.RoomID, payload)
-		// 2. Process data persistence via Kafka
-		// We only archive specific types
-		infra.PushToInput(m.KafkaProducer, KafkaTopic, payload)
+		// Async IO to Redis and Kafka
+		go func(p *model.WsPacket, data []byte) {
+			infra.PublishToRoom(m.RedisClient, p.RoomID, data)
+			// 2. Process data persistence via Kafka
+			// We only archive specific types
+			infra.PushToInput(m.KafkaProducer, KafkaTopic, data)
+		}(packet, payload)
 	// Case B: Like (User generated)
 	// Send to Redis (real-time).
 	// Skip Kafka (usually likes are just counters, detailed logs might not be needed).
@@ -230,7 +236,7 @@ func (m *Manager) broadcastStats() {
 // subscribeToRoom listens to a specific Redis channel for a room
 func (m *Manager) subscribeToRoom(ctx context.Context, roomID string) {
 	// Channel name: e.g., "room:1001:pubsub"
-	channelName := fmt.Sprintf("room:%s:pubsub", roomID)
+	channelName := fmt.Sprintf(infra.KeyRoomPubSub, roomID)
 	//context.Background(): a default context that never cancels, never expires, and has no values.
 	//or context.WithTimeOut(...,3*time.Second)
 	//here ctx is cancellable
@@ -243,6 +249,9 @@ func (m *Manager) subscribeToRoom(ctx context.Context, roomID string) {
 		select {
 		case <-ctx.Done():
 			// Graceful exit when cancel() is called
+			logger.Log.Info("[MANAGER SUB] unsubscribing to room",
+				zap.String("room", roomID),
+			)
 			return
 		// Loop over messages received from Redis.
 		case msg, ok := <-ch:
