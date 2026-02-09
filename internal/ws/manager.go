@@ -178,7 +178,9 @@ func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 		var cmd model.Like
 		if err := json.Unmarshal(packet.Data, &cmd); err == nil {
 			// Call Infra to increment
-			infra.IncrRoomLikes(m.RedisClient, packet.RoomID, cmd.Count)
+			go func(rid string, count uint64) {
+				infra.IncrRoomLikes(m.RedisClient, packet.RoomID, cmd.Count)
+			}(packet.RoomID, cmd.Count)
 		}
 	// Case A: Stats (Generated locally, sent locally)
 	// Do NOT send to Redis (avoids broadcast storm).
@@ -262,17 +264,29 @@ func (m *Manager) subscribeToRoom(ctx context.Context, roomID string) {
 func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
 	//read lock
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	clients, ok := m.Rooms[roomID]
+	if !ok {
+		m.mu.RUnlock()
+		return
+	}
+	// Create a temporary slice to avoid modifying map during iteration
+	var targetClients []*Client
+	for c := range clients {
+		targetClients = append(targetClients, c)
+	}
+	m.mu.RUnlock()
 
-	if clients, ok := m.Rooms[roomID]; ok {
-		for client := range clients {
-			select {
-			case client.Send <- payload:
-			default:
-				// FIX: Do NOT modify the map (delete) inside RLock.
-				// Instead, just close the channel and let WritePump handle the error
-				delete(clients, client)
-			}
+	// Sending to clients outside of Global Lock
+	for _, client := range targetClients {
+		select {
+		case client.Send <- payload:
+		default:
+			// FIX: Do NOT modify the map (delete) inside RLock.
+			// Instead, just close the channel and let WritePump handle the error
+			delete(clients, client)
+			logger.Log.Warn("[MANAGER] Client buffer full, skipping message",
+				zap.Uint64("uid", client.UserID),
+			)
 		}
 	}
 }
