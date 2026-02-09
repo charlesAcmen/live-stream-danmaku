@@ -12,18 +12,19 @@ import (
 
 // Redis Key Templates (Centralized management to avoid typos)
 const (
-	KeyRoomPubSub = "room:%s:pubsub" // Channel for Redis Pub/Sub
-	KeyRoomLikes  = "room:%s:likes"  // Counter for likes
-	KeyRoomOnline = "room:%s:online" //Counter for online users
+	// Ensure Redis is running on localhost:6379 via Docker.
+	RedisAddr          = "127.0.0.1:6379"
+	KeyRoomPubSub      = "room:%s:pubsub" // Channel for Redis Pub/Sub
+	KeyRoomLikes       = "room:%s:likes"  // Counter for likes
+	KeyRoomOnline      = "room:%s:online" // Counter for online users
 	RedisCancelTimeout = 2 * time.Second
 )
 
 func InitRedisClient() *redis.Client {
 	// Initialize Redis client.
-	// Ensure Redis is running on localhost:6379 via Docker.
 	// Lazy loading: only create Redis client when first time trying to contact
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+		Addr:     RedisAddr,
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
@@ -32,7 +33,7 @@ func InitRedisClient() *redis.Client {
 
 // PublishToRoom sends a message to a specific room's Redis channel.
 func PublishToRoom(rdb *redis.Client, roomID string, payload []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
 	defer cancel()
 
 	channel := fmt.Sprintf(KeyRoomPubSub, roomID)
@@ -48,7 +49,7 @@ func PublishToRoom(rdb *redis.Client, roomID string, payload []byte) {
 
 // IncrRoomLikes increments the like counter for a specific room.
 func IncrRoomLikes(rdb *redis.Client, roomID string, count uint64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
 	defer cancel()
 
 	key := fmt.Sprintf(KeyRoomLikes, roomID)
@@ -63,10 +64,34 @@ func IncrRoomLikes(rdb *redis.Client, roomID string, count uint64) {
 	}
 }
 
+// UpdateOnlineCount modifies the online counter (delta can be 1 or -1).
+func UpdateOnlineCount(rdb *redis.Client, roomID string, delta int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
+	defer cancel()
+
+	key := fmt.Sprintf(KeyRoomOnline, roomID)
+
+	var err error
+	if delta > 0 {
+		err = rdb.Incr(ctx, key).Err()
+	} else {
+		err = rdb.Decr(ctx, key).Err()
+	}
+
+	if err != nil {
+		logger.Log.Error("[REDIS INFRA] Failed to update online count",
+			zap.String("room", roomID),
+			zap.Int64("delta", delta),
+			zap.Error(err),
+		)
+	}
+}
+
+
 // GetRoomStats fetches Online count and Likes count in one go.
 // This is used by the periodic broadcastStats in Manager.
 func GetRoomStats(rdb *redis.Client, roomID string) (uint64, uint64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
 	defer cancel()
 	onlineKey := fmt.Sprintf(KeyRoomOnline, roomID)
 	likesKey := fmt.Sprintf(KeyRoomLikes, roomID)
