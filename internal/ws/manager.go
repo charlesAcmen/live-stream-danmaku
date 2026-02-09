@@ -111,11 +111,7 @@ func (m *Manager) handleRegister(client *Client) {
 	// because Incr involves network I/O,TCP round trip,queue in redis,
 	// potentially blocking,timeout,shaking etc.
 	go func(rid string) {
-		//disposable cancel
-		ctx, cancel := context.WithTimeout(context.Background(), infra.RedisCancelTimeout)
-		defer cancel()
-		// Increment online count in Redis
-		m.RedisClient.Incr(ctx, fmt.Sprintf(infra.KeyRoomOnline, rid))
+		infra.UpdateOnlineCount(m.RedisClient, rid, 1)
 	}(client.RoomID)
 	logger.Log.Info("[MANAGER] Client registered",
 		zap.Uint64("uid", client.UserID),
@@ -145,10 +141,7 @@ func (m *Manager) handleUnregister(client *Client) {
 			}
 			// Async Redis update: Decr Online Count
 			go func(rid string) {
-				ctx, cancel := context.WithTimeout(context.Background(), infra.RedisCancelTimeout)
-				defer cancel()
-				// Decrement online count in Redis
-				m.RedisClient.Decr(ctx, fmt.Sprintf(infra.KeyRoomOnline, rid))
+				infra.UpdateOnlineCount(m.RedisClient, rid, -1)
 			}(client.RoomID)
 		}
 	}
