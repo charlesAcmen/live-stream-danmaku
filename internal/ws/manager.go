@@ -155,8 +155,8 @@ func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 	// Case A: Danmaku (User generated)
 	// Send to Redis (so other servers see it).
 	// Send to Kafka (for history storage).
-	// Note: We do NOT call m.broadcastToLocalRoom here.
-	// Why? Because Redis Sub goroutine will receive it and call broadcastToLocalRoom.
+	// Note: We do NOT call m.broadcastToLocalClients here.
+	// Why? Because Redis Sub goroutine will receive it and call broadcastToLocalClients.
 	// If we call it here, the local user will see the message twice!
 	case model.TypeDanmaku:
 		m.processDanmaku(packet.RoomID, payload)
@@ -169,7 +169,7 @@ func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 	// Do NOT send to Redis (avoids broadcast storm).
 	// Do NOT send to Kafka (no need to save transient stats).
 	case model.TypeStats:
-		m.broadcastToLocalRoom(packet.RoomID, payload)
+		m.broadcastToLocalClients(packet.RoomID, payload)
 	default:
 		logger.Log.Warn("[MANAGER] Unknown packet type", zap.Int("type", packet.Type))
 	}
@@ -264,13 +264,13 @@ func (m *Manager) subscribeToRoom(ctx context.Context, roomID string) {
 			}
 			// msg.Payload is the JSON string
 			// Now we broadcast this message to all local clients in this room.
-			m.broadcastToLocalRoom(roomID, []byte(msg.Payload))
+			m.broadcastToLocalClients(roomID, []byte(msg.Payload))
 		}
 	}
 }
 
-// broadcastToLocalRoom sends raw bytes to all clients in a specific room.
-func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
+// broadcastToLocalClients sends raw bytes to all clients in a specific room.
+func (m *Manager) broadcastToLocalClients(roomID string, payload []byte) {
 	//read lock
 	m.mu.RLock()
 	clients, ok := m.Rooms[roomID]
@@ -279,7 +279,7 @@ func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
 		return
 	}
 	// Create a temporary slice to avoid modifying map during iteration
-	var targetClients []*Client
+	targetClients := make([]*Client, 0, len(clients))
 	for c := range clients {
 		targetClients = append(targetClients, c)
 	}
@@ -292,7 +292,7 @@ func (m *Manager) broadcastToLocalRoom(roomID string, payload []byte) {
 		default:
 			// FIX: Do NOT modify the map (delete) inside RLock.
 			// Instead, just close the channel and let WritePump handle the error
-			delete(clients, client)
+			// delete(clients, client)
 			logger.Log.Warn("[MANAGER] Client buffer full, skipping message",
 				zap.Uint64("uid", client.UserID),
 			)
