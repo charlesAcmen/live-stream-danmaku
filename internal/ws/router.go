@@ -10,13 +10,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// InitHandlers registers all business logic callbacks.
+// RegisterActionHandlers registers all business logic callbacks.
 // This implements the "Strategy Pattern" to handle different WebSocket message types.
 // MUST be called in main.go of server before server starts.
-func InitHandlers() {
+func RegisterActionHandlers() {
 
 	// 1. Handle Danmaku Logic
-	Register(model.TypeDanmaku, func(c *Client, m *Manager, data []byte) {
+	RegisterAction(model.TypeDanmaku, func(c *Client, m *Manager, data []byte) {
 		// A. Parse the inner content
 		// The client only sends {"content": "hello"}
 		var inputMsg model.DanmakuMessage
@@ -57,7 +57,7 @@ func InitHandlers() {
 	logger.Log.Info("[SERVER HANDLER]Registered Handler: Danmaku")
 
 	// 2. Handle Like Logic
-	Register(model.ActionLike, func(c *Client, m *Manager, data []byte) {
+	RegisterAction(model.ActionLike, func(c *Client, m *Manager, data []byte) {
 		// A. Parse Input
 		// Client sends: {"count": 10}
 		var likes model.Like
