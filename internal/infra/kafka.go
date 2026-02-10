@@ -111,14 +111,15 @@ func PushToInput(producer sarama.AsyncProducer, topic string, payload []byte) {
 		//Kafka is a byte logging system that deal with binary bytes stream
 		Value: sarama.ByteEncoder(payload),
 	}
-	select {
-	// Async send (Non-blocking)
-	case producer.Input() <- msg:
-	default:
-		// [CIRCUIT BREAKER]
-		// If Sarama's internal buffer (Channel) is full, we DROP the message.
-		// This prevents the Manager from hanging and ensures real-time broadcast (Redis)
-		// remains unaffected even if Kafka is slow or down.
-		logger.Log.Warn("[KAFKA INFRA] Kafka input buffer full, dropping persistence message")
-	}
+	producer.Input() <- msg
+	// select {
+	// // Async send (Non-blocking)
+	// case producer.Input() <- msg:
+	// default:
+	// 	// [CIRCUIT BREAKER]
+	// 	// If Sarama's internal buffer (Channel) is full, we DROP the message.
+	// 	// This prevents the Manager from hanging and ensures real-time broadcast (Redis)
+	// 	// remains unaffected even if Kafka is slow or down.
+	// 	logger.Log.Warn("[KAFKA INFRA] Kafka input buffer full, dropping persistence message")
+	// }
 }
