@@ -34,13 +34,13 @@ var (
 // The benchmark tool will distribute connections evenly among these hosts.
 var targetHosts = []string{
 	"localhost:8081",
-	"localhost:8082",
+	// "localhost:8082",
 	// "localhost:8083",
 	// "localhost:8084",
 }
 
 const (
-	AmountOfClient  = 60000
+	AmountOfClient  = 5000
 	DanmakuInterval = 3600 * time.Second
 )
 

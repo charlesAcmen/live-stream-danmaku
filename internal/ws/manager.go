@@ -193,11 +193,11 @@ func (m *Manager) handleUnregister(client *Client) {
 			// Do NOT close(client.Send) here if workers are still using it.
 			// close(client.Send)
 			client.Close()
-			logger.Log.Info(
-				"[MANAGER] Client disconnected",
-				zap.Uint64("userID", client.UserID),
-				zap.Int("total", len(clients)),
-			)
+			// logger.Log.Info(
+			// 	"[MANAGER] Client disconnected",
+			// 	zap.Uint64("userID", client.UserID),
+			// 	zap.Int("total", len(clients)),
+			// )
 			// Clean up room and STOP subscription if last client leaves
 			if len(clients) == 0 {
 				delete(m.Rooms, client.RoomID)
@@ -272,7 +272,7 @@ func (m *Manager) processLike(packet *model.WsPacket) {
 
 // broadcastStats fetches stats for ALL active rooms and sends updates locally.
 func (m *Manager) broadcastStats() {
-	logger.Log.Info("[MANAGER]BroadcastStats called")
+	// logger.Log.Info("[MANAGER]BroadcastStats called")
 	// 1. Iterate over all active rooms on this server
 	// We need to fetch and broadcast stats for EACH room separately.
 	m.mu.RLock()
@@ -288,6 +288,11 @@ func (m *Manager) broadcastStats() {
 			Online: online,
 			Likes:  likes,
 		}
+		logger.Log.Info("[MANAGER] Room Stats",
+			zap.String("roomID", roomID),
+			zap.Uint64("online", online),
+			zap.Uint64("likes", likes),
+		)
 		dataBytes, _ := json.Marshal(stats)
 
 		// Create packet
