@@ -80,22 +80,31 @@ func (c *Client) WritePump() {
 	}()
 
 	for {
+		select {
 		// get message from Send channel
 		// Note: 'message' here is already a JSON string coming from Redis/Manager.
-		message, ok := <-c.Send
-		if !ok {
-			// channel is closed
-			// Manager closed the channel (though in our new logic, manager shouldn't)
-			c.Socket.WriteMessage(websocket.CloseMessage, []byte{})
+		case message, ok := <-c.Send:
+			if !ok {
+				// channel is closed
+				// Manager closed the channel (though in our new logic, manager shouldn't)
+				c.Socket.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			//Note: could use NextWriter here to enable write in stream manner
+			//avoiding for too many times when huge wave of danmaku coming
+
+			// write to WebSocket
+			if err := c.Socket.WriteMessage(websocket.TextMessage, message); err != nil {
+				logger.Log.Warn("[CLIENT] Write error",
+					zap.Uint64("uid", c.UserID), zap.Error(err))
+				return
+			}
+		case <-c.done:
+			// Signal received to stop this goroutine
+			logger.Log.Debug("[CLIENT] WritePump exiting via done channel", zap.Uint64("uid", c.UserID))
 			return
 		}
-
-		//Note: could use NextWriter here to enable write in stream manner
-		//avoiding for too many times when huge wave of danmaku coming
-
-		// write to WebSocket
-		c.Socket.WriteMessage(websocket.TextMessage, message)
-
 	}
 }
 
