@@ -58,7 +58,7 @@ type Manager struct {
 
 const (
 	BroadCastInterVal    = 3 * time.Second
-	ClientPoolSize       = 500
+	InitClientPoolCap    = 500
 	BroadcastChanSize    = 1024
 	BroadcastJobChanSize = 1000
 )
@@ -77,7 +77,7 @@ func NewManager() *Manager {
 			New: func() interface{} {
 				// Pre-allocate a reasonable capacity
 				// It will grow automatically if needed.
-				return make([]*Client, 0, ClientPoolSize)
+				return make([]*Client, 0, InitClientPoolCap)
 			},
 		},
 		// Initialize Job Channel
