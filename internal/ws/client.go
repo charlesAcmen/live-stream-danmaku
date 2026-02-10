@@ -54,7 +54,10 @@ func (c *Client) ReadPump(manager *Manager) {
 				websocket.CloseGoingAway,         // 1001: browser navigation leave/refreshing
 				websocket.CloseAbnormalClosure) { //1006:connection closed abnormally
 				//log when error does not belong to reasons mentioned above
-				logger.Log.Error("[CLIENT]error: %v", zap.Error(err))
+				logger.Log.Error("[CLIENT] Read error",
+					zap.Uint64("uid", c.UserID),
+					zap.Error(err),
+				)
 			}
 			break // if read error, break the loop
 		}
@@ -62,7 +65,7 @@ func (c *Client) ReadPump(manager *Manager) {
 		// 2. Parse the Envelope (WsPacket)
 		var packet model.WsPacket
 		if err := json.Unmarshal(messageBytes, &packet); err != nil {
-			logger.Log.Error("[CLIENT]Invalid JSON format")
+			logger.Log.Error("[CLIENT]Invalid JSON format", zap.Uint64("uid", c.UserID))
 			continue
 		}
 
@@ -102,7 +105,7 @@ func (c *Client) WritePump() {
 			}
 		case <-c.done:
 			// Signal received to stop this goroutine
-			logger.Log.Debug("[CLIENT] WritePump exiting via done channel", zap.Uint64("uid", c.UserID))
+			// logger.Log.Debug("[CLIENT] WritePump exiting via done channel", zap.Uint64("uid", c.UserID))
 			return
 		}
 	}
@@ -117,6 +120,6 @@ func (c *Client) Close() {
 		// 2. Close the physical connection
 		c.Socket.Close()
 		// Note: We DO NOT close c.Send here to prevent panic in workers
-		logger.Log.Info("[CLIENT] Connection closed safely", zap.Uint64("uid", c.UserID))
+		// logger.Log.Info("[CLIENT] Connection closed safely", zap.Uint64("uid", c.UserID))
 	})
 }

@@ -34,16 +34,21 @@ var (
 // The benchmark tool will distribute connections evenly among these hosts.
 var targetHosts = []string{
 	"localhost:8081",
-	"localhost:8082",
+	// "localhost:8082",
 	// "localhost:8083",
 	// "localhost:8084",
 }
 
+const (
+	AmountOfClient  = 10000
+	DanmakuInterval = 3600 * time.Second
+)
+
 func main() {
 	// 1. Parse command line flags
 	// maximum capacity is 56,460 because of non-infinite number of ports on this laptop
-	clients := flag.Int("c", 1000, "Number of concurrent clients")
-	rate := flag.Duration("r", 2*time.Second, "Message sending interval per client")
+	clients := flag.Int("c", AmountOfClient, "Number of concurrent clients")
+	rate := flag.Duration("r", DanmakuInterval, "Danmaku sending interval per client")
 	flag.Parse()
 
 	// 2. Initialize Logger (Development mode for colored output)
