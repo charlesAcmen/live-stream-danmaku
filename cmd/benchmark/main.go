@@ -34,21 +34,24 @@ var (
 // The benchmark tool will distribute connections evenly among these hosts.
 var targetHosts = []string{
 	"localhost:8081",
-	// "localhost:8082",
+	"localhost:8082",
 	// "localhost:8083",
 	// "localhost:8084",
 }
 
 const (
-	AmountOfClient  = 2000
-	DanmakuInterval = 5 * time.Second
+	TotalClients       = 2000                 // Total concurrent connections
+	ActiveUserRatio    = 0.1                  // 10% users are "talkers", 90% are "lurkers" (listeners)
+	AvgMessageInterval = 2 * time.Second      // On average, a talker sends a message every 10 seconds
+	RoomCapacity       = 500                  // Max users per room (to simulate multiple rooms)
+	RampUpSpeed        = 1 * time.Millisecond // Connection speed limit
 )
 
 func main() {
 	// 1. Parse command line flags
 	// maximum capacity is 56,460 because of non-infinite number of ports on this laptop
-	clients := flag.Int("c", AmountOfClient, "Number of concurrent clients")
-	rate := flag.Duration("r", DanmakuInterval, "Danmaku sending interval per client")
+	clients := flag.Int("c", TotalClients, "Number of concurrent clients")
+	rate := flag.Duration("r", AvgMessageInterval, "Danmaku sending interval per client")
 	flag.Parse()
 
 	// 2. Initialize Logger (Development mode for colored output)
@@ -56,9 +59,11 @@ func main() {
 	defer logger.Sync()
 
 	logger.Log.Info("[BENCHMARK] Starting...",
-		zap.Int("clients", *clients),
-		zap.Duration("rate", *rate),
-		zap.Strings("targets", targetHosts),
+		zap.Int("total_conns", *clients),
+		zap.Float64("active_ratio", ActiveUserRatio), // Percentage of users who actually speak
+		zap.Duration("avg_interval", *rate),          // Base interval before jitter
+		zap.Int("room_cap", RoomCapacity),            // Users per room
+		zap.Strings("target_servers", targetHosts),
 	)
 
 	// 3. Start Monitor Goroutine (Prints stats every 1 second)
@@ -130,12 +135,15 @@ func monitor() {
 
 // runBot simulates a single user behavior.
 func runBot(host string, id int, interval time.Duration) {
-	// 1. Build WebSocket URL with authentication params
+	// 1. Distribute bots into different rooms based on RoomCapacity
+	roomID := fmt.Sprintf("room_%d", id/RoomCapacity)
+
+	// Build WebSocket URL with authentication params
 	u := url.URL{Scheme: "ws", Host: host, Path: "/ws"}
 	q := u.Query()
 	q.Set("uid", fmt.Sprintf("%d", id))
-	q.Set("name", "benchmark-bot")
-	q.Set("room", "1001")
+	q.Set("name", fmt.Sprintf("bot-%d", id))
+	q.Set("room", roomID)
 	u.RawQuery = q.Encode()
 
 	// 2. Connect to Server
@@ -157,37 +165,53 @@ func runBot(host string, id int, interval time.Duration) {
 			_, _, err := c.ReadMessage()
 			if err != nil {
 				atomic.AddInt64(&errorCount, 1)
-				logger.Log.Warn("[BENCHMARK] Read loop exited due to error", zap.Int("bot_id", id), zap.Error(err))
+				logger.Log.Warn("[BENCHMARK] Read loop exited due to error",
+					zap.Int("bot_id", id),
+					zap.Error(err))
 				return
 			}
 			atomic.AddInt64(&msgRecvCount, 1)
 		}
 	}()
 
-	// 4. Start Write Loop (Send Danmaku periodically)
+	// 3. Realistic Behavior Simulation
+	// Only a subset of users (ActiveUserRatio) will send messages.
+	isTalker := rand.Float64() < ActiveUserRatio
+	if !isTalker {
+		// Lurker: Just stay online and listen (the read loop handles it)
+		select {}
+	}
+
+	// Talker: Send messages with Jitter
+	jitter := rand.Float64() * 2.0 // Range: 0.0 to 2.0
+	waitDuration := time.Duration(float64(interval) * jitter)
+	time.Sleep(waitDuration)
+
+	// Start Write Loop (Send Danmaku periodically)
 	// Add some jitter to avoid all bots sending at the exact same millisecond
-	time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+	// time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		sendDanmaku(c)
+		sendDanmaku(c, roomID)
 	}
 }
 
 // sendDanmaku constructs a valid WsPacket and sends it.
-func sendDanmaku(c *websocket.Conn) {
+func sendDanmaku(c *websocket.Conn, roomID string) {
 	// 1. Create the Payload (The content)
 	msgContent := model.DanmakuMessage{
-		Content: fmt.Sprintf("bench-msg-%d", time.Now().UnixNano()),
+		Content: fmt.Sprintf("bench-msg-%d", rand.Intn(1000)),
 	}
 	dataBytes, _ := json.Marshal(msgContent)
 
 	// 2. Wrap in Envelope (WsPacket)
 	packet := model.WsPacket{
-		Type: model.TypeDanmaku,
-		Data: dataBytes,
+		Type:   model.TypeDanmaku,
+		RoomID: roomID,
+		Data:   dataBytes,
 	}
 
 	// 3. Serialize and Send
