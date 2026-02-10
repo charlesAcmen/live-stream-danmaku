@@ -4,6 +4,8 @@ import (
 	"context" // context is used to manage the lifecycle of the Redis client
 	"encoding/json"
 	"fmt"
+	"math/rand"
+	"os"
 	"sync"
 	"time" //broadcast stats data timer
 
@@ -23,6 +25,10 @@ type BroadcastJob struct {
 
 // Manager is responsible for managing all websocket clients and the Redis connection
 type Manager struct {
+	// ServerID is a unique identifier for this running instance.
+	// It is used to separate stats in Redis.
+	ServerID string
+
 	// Register channel: when a new client joins, send the client pointer to the channel
 	Register chan *Client
 
@@ -65,10 +71,17 @@ const (
 )
 
 func NewManager() *Manager {
+	// Generate a unique ID for this server instance.
+	// In k8s, you might use os.Hostname().
+	// Here we use Hostname + Random Int to ensure uniqueness during local restarts.
+	hostname, _ := os.Hostname()
+	serverID := fmt.Sprintf("%s-%d", hostname, rand.Intn(100000))
+
 	brokers := []string{"127.0.0.1:9092"}
 	rdb := infra.InitRedisClient()
 	producer := infra.InitKafkaProducer(brokers)
 	return &Manager{
+		ServerID:   serverID,
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
 		Broadcast:  make(chan *model.WsPacket, BroadcastChanSize), // Buffer to handle spikes
