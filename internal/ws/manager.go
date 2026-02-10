@@ -190,7 +190,8 @@ func (m *Manager) handleRegister(client *Client) {
 	// Async Redis update: Online Count
 	// because Incr involves network I/O,TCP round trip,queue in redis,
 	// potentially blocking,timeout,shaking etc.
-	go infra.UpdateOnlineCount(m.RedisClient, client.RoomID, 1)
+	// go infra.UpdateOnlineCount(m.RedisClient, client.RoomID, 1)
+	// Reason: We use heartbeat in broadcastStats now.
 	logger.Log.Info("[MANAGER] Client registered",
 		zap.Uint64("uid", client.UserID),
 		zap.String("room", client.RoomID),
@@ -221,7 +222,8 @@ func (m *Manager) handleUnregister(client *Client) {
 				}
 			}
 			// Async Redis update: Decr Online Count
-			go infra.UpdateOnlineCount(m.RedisClient, client.RoomID, -1)
+			// go infra.UpdateOnlineCount(m.RedisClient, client.RoomID, -1)
+			// We use heartbeat in broadcastStats now.
 		}
 	}
 }
@@ -289,12 +291,13 @@ func (m *Manager) broadcastStats() {
 	// 1. Iterate over all active rooms on this server
 	// We need to fetch and broadcast stats for EACH room separately.
 	m.mu.RLock()
-	roomIDs := make([]string, 0, len(m.Rooms))
-	for roomID := range m.Rooms {
-		roomIDs = append(roomIDs, roomID)
+	localStats := make(map[string]int)
+	for roomID, clients := range m.Rooms {
+		localStats[roomID] = len(clients)
 	}
+
 	m.mu.RUnlock()
-	for _, roomID := range roomIDs {
+	for roomID, count := range localStats {
 		online, likes := infra.GetRoomStats(m.RedisClient, roomID)
 
 		stats := model.StatsData{
