@@ -32,7 +32,7 @@ type Manager struct {
 	// Broadcast channel: when a new message is to be broadcast, send the []byte to the channel
 	Broadcast chan *model.WsPacket
 
-	// Rooms maps RoomID to a set of Clients in that room
+	// Rooms: Map of RoomID -> Set of Clients
 	Rooms map[string]map[*Client]struct{}
 
 	//Store cancel functions to stop Redis subscriptions
@@ -61,6 +61,7 @@ const (
 	InitClientPoolCap    = 500
 	BroadcastChanSize    = 1024
 	BroadcastJobChanSize = 1000
+	WorkerCount          = 5
 )
 
 func NewManager() *Manager {
@@ -103,21 +104,23 @@ func (m *Manager) Start() {
 		case packet := <-m.Broadcast:
 			m.handleBroadcast(packet)
 		case <-statsTicker.C:
-			m.broadcastStats()
+			// Do NOT call m.broadcastStats() directly here.
+			// broadcastStats involves Redis I/O and loops through all rooms.
+			// If run synchronously, it blocks the Register/Unregister channels,
+			// causing a bottleneck (Head-of-Line Blocking).
+			go m.broadcastStats()
 		}
 	}
 }
 
 // StartWorkers should be called inside Manager.Start()
 func (m *Manager) StartWorkers() {
-	// Start 10 background workers (adjust based on CPU cores)
-	workerCount := 10
-	for i := 0; i < workerCount; i++ {
+	for i := 0; i < WorkerCount; i++ {
 		go m.broadcastWorker()
 	}
 }
 
-// The Worker Logic
+// broadcastWorker consumes jobs from the channel and sends messages to clients.
 func (m *Manager) broadcastWorker() {
 	for job := range m.broadcastJobChan {
 		// 1. Iterate and Send
@@ -136,7 +139,8 @@ func (m *Manager) safeSend(client *Client, payload []byte) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Just catch the panic if the channel was closed
-			// This is a last-resort protection
+			// This is a last-resort protection  (though we try to avoid closing Send)
+			logger.Log.Warn("[MANAGER] Panic in safeSend", zap.Any("recover", r))
 		}
 	}()
 
@@ -144,6 +148,8 @@ func (m *Manager) safeSend(client *Client, payload []byte) {
 	case client.Send <- payload:
 	default:
 		// Buffer full, skip this client
+		// In a real system, you might want to disconnect the client here.
+		logger.Log.Warn("[MANAGER] Client buffer full, dropping message", zap.Uint64("uid", client.UserID))
 	}
 }
 
