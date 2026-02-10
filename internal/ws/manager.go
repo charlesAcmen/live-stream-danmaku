@@ -193,10 +193,10 @@ func (m *Manager) handleRegister(client *Client) {
 	// potentially blocking,timeout,shaking etc.
 	// go infra.UpdateOnlineCount(m.RedisClient, client.RoomID, 1)
 	// Reason: We use heartbeat in broadcastStats now.
-	logger.Log.Info("[MANAGER] Client registered",
-		zap.Uint64("uid", client.UserID),
-		zap.String("room", client.RoomID),
-		zap.Int("total", len(m.Rooms[client.RoomID])))
+	// logger.Log.Info("[MANAGER] Client registered",
+	// 	zap.Uint64("uid", client.UserID),
+	// 	zap.String("room", client.RoomID),
+	// 	zap.Int("total", len(m.Rooms[client.RoomID])))
 }
 func (m *Manager) handleUnregister(client *Client) {
 	m.mu.Lock()
