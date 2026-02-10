@@ -2,11 +2,16 @@ package ws
 
 import (
 	"encoding/json"
+	"sync"
 
 	"github.com/charlesAcmen/livestream-danmaku/internal/logger"
 	"github.com/charlesAcmen/livestream-danmaku/internal/model" //database structures
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+)
+
+const (
+	SendChanSize = 1024
 )
 
 type Client struct {
@@ -16,6 +21,10 @@ type Client struct {
 
 	Socket *websocket.Conn // the websocket connection that the server holds for each client
 	Send   chan []byte     // a channel to send messages to the client
+	// done is used to signal the goroutines to stop
+	done chan struct{}
+	// once ensures that the Close operations are only performed once
+	once sync.Once
 }
 
 func NewClient(uid uint64, name, room string, conn *websocket.Conn) *Client {
@@ -24,7 +33,8 @@ func NewClient(uid uint64, name, room string, conn *websocket.Conn) *Client {
 		Username: name,
 		RoomID:   room,
 		Socket:   conn,
-		Send:     make(chan []byte, 1024),
+		Send:     make(chan []byte, SendChanSize),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -75,6 +85,7 @@ func (c *Client) WritePump() {
 		message, ok := <-c.Send
 		if !ok {
 			// channel is closed
+			// Manager closed the channel (though in our new logic, manager shouldn't)
 			c.Socket.WriteMessage(websocket.CloseMessage, []byte{})
 			return
 		}
@@ -86,4 +97,17 @@ func (c *Client) WritePump() {
 		c.Socket.WriteMessage(websocket.TextMessage, message)
 
 	}
+}
+
+// Close gracefully closes the client connection and signals goroutines to exit.
+// It is idempotent thanks to sync.Once.
+func (c *Client) Close() {
+	c.once.Do(func() {
+		// 1. Close the done channel to signal WritePump and other observers
+		close(c.done)
+		// 2. Close the physical connection
+		c.Socket.Close()
+		// Note: We DO NOT close c.Send here to prevent panic in workers
+		logger.Log.Info("[CLIENT] Connection closed safely", zap.Uint64("uid", c.UserID))
+	})
 }

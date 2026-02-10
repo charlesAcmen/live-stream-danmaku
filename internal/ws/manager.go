@@ -122,16 +122,28 @@ func (m *Manager) broadcastWorker() {
 	for job := range m.broadcastJobChan {
 		// 1. Iterate and Send
 		for _, client := range job.Clients {
-			select {
-			case client.Send <- job.Payload:
-			default:
-				// Skip if full
-			}
+			m.safeSend(client, job.Payload)
 		}
 
 		// 2. Return the slice to the Pool HERE
 		// The worker is responsible for cleanup
 		m.clientPool.Put(job.Clients)
+	}
+}
+
+// safeSend attempts to send a message without panicking
+func (m *Manager) safeSend(client *Client, payload []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Just catch the panic if the channel was closed
+			// This is a last-resort protection
+		}
+	}()
+
+	select {
+	case client.Send <- payload:
+	default:
+		// Buffer full, skip this client
 	}
 }
 
@@ -172,7 +184,9 @@ func (m *Manager) handleUnregister(client *Client) {
 	if clients, ok := m.Rooms[client.RoomID]; ok {
 		if _, ok := clients[client]; ok {
 			delete(clients, client)
-			close(client.Send)
+			// Do NOT close(client.Send) here if workers are still using it.
+			// close(client.Send)
+			client.Close()
 			logger.Log.Info(
 				"[MANAGER] Client disconnected",
 				zap.Uint64("userID", client.UserID),
