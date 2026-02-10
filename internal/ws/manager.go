@@ -67,7 +67,7 @@ const (
 	InitClientPoolCap    = 500
 	BroadcastChanSize    = 1024
 	BroadcastJobChanSize = 1000
-	WorkerCount          = 5
+	WorkerCount          = 24
 )
 
 func NewManager() *Manager {
@@ -149,13 +149,14 @@ func (m *Manager) broadcastWorker() {
 
 // safeSend attempts to send a message without panicking
 func (m *Manager) safeSend(client *Client, payload []byte) {
-	defer func() {
-		if r := recover(); r != nil {
-			// Just catch the panic if the channel was closed
-			// This is a last-resort protection  (though we try to avoid closing Send)
-			logger.Log.Warn("[MANAGER] Panic in safeSend", zap.Any("recover", r))
-		}
-	}()
+	// no more panic cause manager will not close send channel
+	// defer func() {
+	// 	if r := recover(); r != nil {
+	// 		// Just catch the panic if the channel was closed
+	// 		// This is a last-resort protection  (though we try to avoid closing Send)
+	// 		logger.Log.Warn("[MANAGER] Panic in safeSend", zap.Any("recover", r))
+	// 	}
+	// }()
 
 	select {
 	case client.Send <- payload:
@@ -207,11 +208,11 @@ func (m *Manager) handleUnregister(client *Client) {
 			// Do NOT close(client.Send) here if workers are still using it.
 			// close(client.Send)
 			client.Close()
-			// logger.Log.Info(
-			// 	"[MANAGER] Client disconnected",
-			// 	zap.Uint64("userID", client.UserID),
-			// 	zap.Int("total", len(clients)),
-			// )
+			logger.Log.Info(
+				"[MANAGER] Client disconnected",
+				zap.Uint64("userID", client.UserID),
+				zap.Int("total", len(clients)),
+			)
 			// Clean up room and STOP subscription if last client leaves
 			if len(clients) == 0 {
 				delete(m.Rooms, client.RoomID)

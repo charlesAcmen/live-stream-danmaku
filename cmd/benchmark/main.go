@@ -40,10 +40,10 @@ var targetHosts = []string{
 }
 
 const (
-	TotalClients       = 2000                 // Total concurrent connections
+	TotalClients       = 20000                // Total concurrent connections
 	ActiveUserRatio    = 0.1                  // 10% users are "talkers", 90% are "lurkers" (listeners)
 	AvgMessageInterval = 2 * time.Second      // On average, a talker sends a message every 10 seconds
-	RoomCapacity       = 500                  // Max users per room (to simulate multiple rooms)
+	RoomCapacity       = 20000                // Max users per room (to simulate multiple rooms)
 	RampUpSpeed        = 1 * time.Millisecond // Connection speed limit
 )
 
