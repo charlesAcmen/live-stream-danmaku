@@ -47,11 +47,11 @@ func RegisterActionHandlers() {
 			Data:   dataBytes,
 		}
 		m.Broadcast <- &outgoingPacket
-		logger.Log.Debug("[SERVER HANDLER]Danmaku processed",
-			zap.Uint64("uid", c.UserID),
-			zap.String("room", c.RoomID),
-			zap.String("content", inputMsg.Content),
-		)
+		// logger.Log.Debug("[SERVER HANDLER]Danmaku processed",
+		// 	zap.Uint64("uid", c.UserID),
+		// 	zap.String("room", c.RoomID),
+		// 	zap.String("content", inputMsg.Content),
+		// )
 	})
 
 	logger.Log.Info("[SERVER HANDLER]Registered Handler: Danmaku")

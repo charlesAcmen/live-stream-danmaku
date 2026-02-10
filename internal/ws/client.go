@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	SendChanSize = 1024
+	SendChanSize = 4096
 )
 
 type Client struct {

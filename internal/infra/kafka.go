@@ -9,19 +9,21 @@ import (
 )
 
 const (
-	DanmakuSaveTopic = "danmaku_save_topic" // Topic name for danmaku saving
+	DanmakuSaveTopic    = "danmaku_save_topic" // Topic name for danmaku saving
+	ProducerChanBufSize = 16384
 )
 
 func InitKafkaProducer(brokers []string) sarama.AsyncProducer {
 	// Init Kafka Producer
 	// Configure Sarama settings
 	config := sarama.NewConfig()
-	config.ChannelBufferSize = 4096 // Allow more buffering in memory
+	config.ChannelBufferSize = ProducerChanBufSize // Allow more buffering in memory
 	// We must wait for the acknowledgment from Kafka to ensure data is safe.
 	//   - NoResponse
 	//   - WaitForLocal: Leader returns OK after receiving
 	//   - WaitForAll: all follower synced
-	config.Producer.RequiredAcks = sarama.WaitForAll
+	// For Danmaku, speed > absolute consistency.
+	config.Producer.RequiredAcks = sarama.WaitForLocal
 
 	// Snappy is the standard for Kafka logging (Google developed, fast/low CPU).
 	// This drastically reduces network bandwidth usage.
@@ -30,8 +32,9 @@ func InitKafkaProducer(brokers []string) sarama.AsyncProducer {
 	// Improve Batching.
 	// Sarama will wait up to 10ms or until batch size is reached.
 	// This reduces the number of requests sent to the broker.
+	// This prevents sending too many tiny packets.
 	config.Producer.Flush.Frequency = 10 * time.Millisecond
-
+	config.Producer.Flush.Bytes = 16 * 1024 // 16KB
 	// We need to return success info to avoid errors in SyncProducer.
 	// config.Producer.Return.Successes = true
 

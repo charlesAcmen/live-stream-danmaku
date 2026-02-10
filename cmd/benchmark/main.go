@@ -40,8 +40,8 @@ var targetHosts = []string{
 }
 
 const (
-	AmountOfClient  = 5000
-	DanmakuInterval = 3600 * time.Second
+	AmountOfClient  = 2000
+	DanmakuInterval = 5 * time.Second
 )
 
 func main() {
