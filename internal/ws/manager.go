@@ -308,13 +308,12 @@ func (m *Manager) broadcastStats() {
 		// We ignore likes for now as requested.
 		totalOnline := infra.GetTotalOnline(m.RedisClient, roomID)
 		stats := model.StatsData{
-			Online: uint64(totalOnline),
-			Likes:  likes,
+			Online: totalOnline,
+			Likes:  0, // Placeholder as requested
 		}
 		logger.Log.Info("[MANAGER] Room Stats",
 			zap.String("roomID", roomID),
-			zap.Uint64("online", online),
-			zap.Uint64("likes", likes),
+			zap.Uint64("online", totalOnline),
 		)
 		dataBytes, _ := json.Marshal(stats)
 

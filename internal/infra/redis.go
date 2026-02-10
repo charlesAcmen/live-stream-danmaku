@@ -134,14 +134,14 @@ func GetTotalOnline(rdb *redis.Client, roomID string) uint64 {
 	}
 
 	// 3. Sum them up
-	var total uint64
+	var total uint64 = 0
 	for _, val := range values {
 		if val == nil {
 			continue
 		}
 		// Redis returns values as string (or int depending on adapter), usually string in Go-Redis
 		if s, ok := val.(string); ok {
-			if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+			if i, err := strconv.ParseUint(s, 10, 64); err == nil {
 				total += i
 			}
 		}
