@@ -19,7 +19,6 @@ func InitDB() *gorm.DB {
 	if err := db.Migrator().DropTable(&model.DanmakuMessage{}); err != nil {
 		logger.Log.Error("[DB INFRA]Drop table DanmakuMessage failed", zap.Error(err))
 	}
-	// INSERT_YOUR_CODE
 	if err := db.Migrator().DropTable(&model.Room{}); err != nil {
 		logger.Log.Error("[DB INFRA]Drop table Room failed", zap.Error(err))
 	}

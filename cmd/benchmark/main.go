@@ -34,13 +34,13 @@ var (
 // The benchmark tool will distribute connections evenly among these hosts.
 var targetHosts = []string{
 	"localhost:8081",
-	// "localhost:8082",
+	"localhost:8082",
 	// "localhost:8083",
 	// "localhost:8084",
 }
 
 const (
-	AmountOfClient  = 10000
+	AmountOfClient  = 60000
 	DanmakuInterval = 3600 * time.Second
 )
 
@@ -193,7 +193,6 @@ func sendDanmaku(c *websocket.Conn) {
 	// 3. Serialize and Send
 	if err := c.WriteJSON(packet); err != nil {
 		atomic.AddInt64(&errorCount, 1)
-		// INSERT_YOUR_CODE
 		logger.Log.Warn("[BENCHMARK] Failed to send danmaku", zap.Error(err))
 		return
 	}

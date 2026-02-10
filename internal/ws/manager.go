@@ -329,9 +329,9 @@ func (m *Manager) subscribeToRoom(ctx context.Context, roomID string) {
 		select {
 		case <-ctx.Done():
 			// Graceful exit when cancel() is called
-			logger.Log.Info("[MANAGER SUB] unsubscribing to room",
-				zap.String("room", roomID),
-			)
+			// logger.Log.Info("[MANAGER SUB] unsubscribing to room",
+			// 	zap.String("room", roomID),
+			// )
 			return
 		// Loop over messages received from Redis.
 		case msg, ok := <-ch:
