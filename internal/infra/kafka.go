@@ -33,7 +33,9 @@ func InitKafkaProducer(brokers []string) sarama.AsyncProducer {
 	// Sarama will wait up to 10ms or until batch size is reached.
 	// This reduces the number of requests sent to the broker.
 	// This prevents sending too many tiny packets.
-	config.Producer.Flush.Frequency = 10 * time.Millisecond
+	config.Producer.Flush.Messages = 500
+	config.Producer.Flush.MaxMessages = 1000
+	config.Producer.Flush.Frequency = 500 * time.Millisecond
 	config.Producer.Flush.Bytes = 16 * 1024 // 16KB
 	// We need to return success info to avoid errors in SyncProducer.
 	// config.Producer.Return.Successes = true
@@ -117,6 +119,6 @@ func PushToInput(producer sarama.AsyncProducer, topic string, payload []byte) {
 		// If Sarama's internal buffer (Channel) is full, we DROP the message.
 		// This prevents the Manager from hanging and ensures real-time broadcast (Redis)
 		// remains unaffected even if Kafka is slow or down.
-		// logger.Log.Warn("[KAFKA INFRA] Kafka input buffer full, dropping persistence message")
+		logger.Log.Warn("[KAFKA INFRA] Kafka input buffer full, dropping persistence message")
 	}
 }
