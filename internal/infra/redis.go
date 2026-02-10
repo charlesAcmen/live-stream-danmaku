@@ -106,7 +106,7 @@ func UpdateServerOnline(rdb *redis.Client, roomID string, serverID string, count
 }
 
 // GetTotalOnline aggregates online counts from all active servers for a room.
-func GetTotalOnline(rdb *redis.Client, roomID string) int64 {
+func GetTotalOnline(rdb *redis.Client, roomID string) uint64 {
 	ctx := context.Background()
 	// Match pattern: room:1001:online:*
 	// This finds keys from all servers currently reporting for this room.
@@ -134,7 +134,7 @@ func GetTotalOnline(rdb *redis.Client, roomID string) int64 {
 	}
 
 	// 3. Sum them up
-	var total int64
+	var total uint64
 	for _, val := range values {
 		if val == nil {
 			continue
