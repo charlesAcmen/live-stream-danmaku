@@ -41,8 +41,8 @@ var targetHosts = []string{
 
 const (
 	TotalClients       = 20000                // Total concurrent connections
-	ActiveUserRatio    = 0.1                  // 10% users are "talkers", 90% are "lurkers" (listeners)
-	AvgMessageInterval = 2 * time.Second      // On average, a talker sends a message every 10 seconds
+	ActiveUserRatio    = 0.001                // users are "talkers", are "lurkers" (listeners)
+	AvgMessageInterval = 1 * time.Second      // On average, a talker sends a message every 10 seconds
 	RoomCapacity       = 20000                // Max users per room (to simulate multiple rooms)
 	RampUpSpeed        = 1 * time.Millisecond // Connection speed limit
 )
@@ -181,22 +181,15 @@ func runBot(host string, id int, interval time.Duration) {
 		// Lurker: Just stay online and listen (the read loop handles it)
 		select {}
 	}
-
 	// Talker: Send messages with Jitter
-	jitter := rand.Float64() * 2.0 // Range: 0.0 to 2.0
-	waitDuration := time.Duration(float64(interval) * jitter)
-	time.Sleep(waitDuration)
-
+	for {
+		jitter := 0.5 + rand.Float64() // 0.5 ~ 1.5
+		time.Sleep(time.Duration(float64(interval) * jitter))
+		sendDanmaku(c, roomID)
+	}
 	// Start Write Loop (Send Danmaku periodically)
 	// Add some jitter to avoid all bots sending at the exact same millisecond
 	// time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		sendDanmaku(c, roomID)
-	}
 }
 
 // sendDanmaku constructs a valid WsPacket and sends it.

@@ -67,7 +67,7 @@ const (
 	InitClientPoolCap    = 500
 	BroadcastChanSize    = 1024
 	BroadcastJobChanSize = 1000
-	WorkerCount          = 24
+	WorkerCount          = 100
 )
 
 func NewManager() *Manager {

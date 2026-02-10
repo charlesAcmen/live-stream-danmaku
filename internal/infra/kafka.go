@@ -117,6 +117,6 @@ func PushToInput(producer sarama.AsyncProducer, topic string, payload []byte) {
 		// If Sarama's internal buffer (Channel) is full, we DROP the message.
 		// This prevents the Manager from hanging and ensures real-time broadcast (Redis)
 		// remains unaffected even if Kafka is slow or down.
-		logger.Log.Warn("[KAFKA INFRA] Kafka input buffer full, dropping persistence message")
+		// logger.Log.Warn("[KAFKA INFRA] Kafka input buffer full, dropping persistence message")
 	}
 }
