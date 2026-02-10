@@ -266,7 +266,7 @@ func (m *Manager) processDanmaku(roomID string, data []byte) {
 	// Async IO to Redis and Kafka
 
 	// 1. Persistence (Kafka)
-	go infra.PushToInput(m.KafkaProducer, infra.DanmakuSaveTopic, data)
+	infra.PushToInput(m.KafkaProducer, infra.DanmakuSaveTopic, data)
 
 	// 2. Distribution (Redis Pub/Sub)
 	// This ensures clients on other servers also receive this danmaku.
