@@ -15,6 +15,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// Job structure
+type BroadcastJob struct {
+	Clients []*Client // The slice obtained from Pool
+	Payload []byte
+}
+
 // Manager is responsible for managing all websocket clients and the Redis connection
 type Manager struct {
 	// Register channel: when a new client joins, send the client pointer to the channel
@@ -38,6 +44,11 @@ type Manager struct {
 	//RLock() when multiple routines read room map to broadcast simultaneously,
 	//non blocking
 
+	// Reducing GC pressure by avoiding frequent make([]*Client).
+	clientPool sync.Pool
+	// Channel to distribute broadcast tasks to background workers
+	broadcastJobChan chan *BroadcastJob
+
 	// RedisClient: the connection to the Redis server.
 	RedisClient *redis.Client
 
@@ -46,8 +57,10 @@ type Manager struct {
 }
 
 const (
-	BroadCastInterVal = 3 * time.Second
-	BroadcastChanSize = 1024
+	BroadCastInterVal    = 3 * time.Second
+	ClientPoolSize       = 500
+	BroadcastChanSize    = 1024
+	BroadcastJobChanSize = 1000
 )
 
 func NewManager() *Manager {
@@ -55,20 +68,29 @@ func NewManager() *Manager {
 	rdb := infra.InitRedisClient()
 	producer := infra.InitKafkaProducer(brokers)
 	return &Manager{
-		Register:      make(chan *Client),
-		Unregister:    make(chan *Client),
-		Broadcast:     make(chan *model.WsPacket, BroadcastChanSize), // Buffer to handle spikes
-		Rooms:         make(map[string]map[*Client]struct{}),
-		cancelSub:     make(map[string]context.CancelFunc),
-		RedisClient:   rdb,
-		KafkaProducer: producer,
+		Register:   make(chan *Client),
+		Unregister: make(chan *Client),
+		Broadcast:  make(chan *model.WsPacket, BroadcastChanSize), // Buffer to handle spikes
+		Rooms:      make(map[string]map[*Client]struct{}),
+		cancelSub:  make(map[string]context.CancelFunc),
+		clientPool: sync.Pool{
+			New: func() interface{} {
+				// Pre-allocate a reasonable capacity
+				// It will grow automatically if needed.
+				return make([]*Client, 0, ClientPoolSize)
+			},
+		},
+		// Initialize Job Channel
+		broadcastJobChan: make(chan *BroadcastJob, BroadcastJobChanSize),
+		RedisClient:      rdb,
+		KafkaProducer:    producer,
 	}
 }
 
 // Creates the main loop for the manager.
 func (m *Manager) Start() {
 	logger.Log.Info("[MANAGER] Multi-room Manager started")
-
+	m.StartWorkers()
 	statsTicker := time.NewTicker(BroadCastInterVal)
 	defer statsTicker.Stop()
 
@@ -83,6 +105,33 @@ func (m *Manager) Start() {
 		case <-statsTicker.C:
 			m.broadcastStats()
 		}
+	}
+}
+
+// StartWorkers should be called inside Manager.Start()
+func (m *Manager) StartWorkers() {
+	// Start 10 background workers (adjust based on CPU cores)
+	workerCount := 10
+	for i := 0; i < workerCount; i++ {
+		go m.broadcastWorker()
+	}
+}
+
+// The Worker Logic
+func (m *Manager) broadcastWorker() {
+	for job := range m.broadcastJobChan {
+		// 1. Iterate and Send
+		for _, client := range job.Clients {
+			select {
+			case client.Send <- job.Payload:
+			default:
+				// Skip if full
+			}
+		}
+
+		// 2. Return the slice to the Pool HERE
+		// The worker is responsible for cleanup
+		m.clientPool.Put(job.Clients)
 	}
 }
 
@@ -181,11 +230,11 @@ func (m *Manager) processDanmaku(roomID string, data []byte) {
 	// Async IO to Redis and Kafka
 
 	// 1. Persistence (Kafka)
-	go infra.PublishToRoom(m.RedisClient, roomID, data)
+	go infra.PushToInput(m.KafkaProducer, infra.DanmakuSaveTopic, data)
 
 	// 2. Distribution (Redis Pub/Sub)
 	// This ensures clients on other servers also receive this danmaku.
-	go infra.PushToInput(m.KafkaProducer, infra.DanmakuSaveTopic, data)
+	go infra.PublishToRoom(m.RedisClient, roomID, data)
 }
 
 // processLike handles user likes.
@@ -228,12 +277,19 @@ func (m *Manager) broadcastStats() {
 			Data:   dataBytes,
 		}
 
-		// Non-blocking send to self (avoid deadlock if channel is full)
-		select {
-		case m.Broadcast <- packet:
-		default:
-			logger.Log.Warn("[MANAGER] Broadcast channel full, skipping stats", zap.String("room", roomID))
+		payload, err := json.Marshal(packet)
+		if err != nil {
+			logger.Log.Error("[MANAGER] Marshal stats packet failed", zap.Error(err))
+			continue
 		}
+		// Non-blocking send to self (avoid deadlock if channel is full)
+		// select {
+		// case m.Broadcast <- packet:
+		// default:
+		// 	logger.Log.Warn("[MANAGER] Broadcast channel full, skipping stats", zap.String("room", roomID))
+		// }
+
+		m.broadcastToLocalClients(roomID, payload)
 	}
 }
 
@@ -278,24 +334,39 @@ func (m *Manager) broadcastToLocalClients(roomID string, payload []byte) {
 		m.mu.RUnlock()
 		return
 	}
-	// Create a temporary slice to avoid modifying map during iteration
-	targetClients := make([]*Client, 0, len(clients))
+	// Get from pool
+	targetClients := m.clientPool.Get().([]*Client)
+	targetClients = targetClients[:0] // Reset length
 	for c := range clients {
 		targetClients = append(targetClients, c)
 	}
 	m.mu.RUnlock()
 
-	// Sending to clients outside of Global Lock
-	for _, client := range targetClients {
-		select {
-		case client.Send <- payload:
-		default:
-			// FIX: Do NOT modify the map (delete) inside RLock.
-			// Instead, just close the channel and let WritePump handle the error
-			// delete(clients, client)
-			logger.Log.Warn("[MANAGER] Client buffer full, skipping message",
-				zap.Uint64("uid", client.UserID),
-			)
-		}
+	job := &BroadcastJob{
+		Clients: targetClients,
+		Payload: payload,
 	}
+	// 4. Non-blocking Dispatch to Workers
+	select {
+	case m.broadcastJobChan <- job:
+		// Success: Worker will handle it
+	default:
+		// Failsafe: If workers are too slow, we must drop the job
+		// and return the slice to pool immediately to prevent leak
+		logger.Log.Warn("[MANAGER] Broadcast job queue full, dropping message", zap.String("room", roomID))
+		m.clientPool.Put(targetClients)
+	}
+	// Sending to clients outside of Global Lock
+	// for _, client := range targetClients {
+	// 	select {
+	// 	case client.Send <- payload:
+	// 	default:
+	// 		// FIX: Do NOT modify the map (delete) inside RLock.
+	// 		// Instead, just close the channel and let WritePump handle the error
+	// 		// delete(clients, client)
+	// 		logger.Log.Warn("[MANAGER] Client buffer full, skipping message",
+	// 			zap.Uint64("uid", client.UserID),
+	// 		)
+	// 	}
+	// }
 }
