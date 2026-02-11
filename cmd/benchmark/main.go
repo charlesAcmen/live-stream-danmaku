@@ -261,7 +261,8 @@ func runBot(host string, id int, interval time.Duration) {
 		case <-done:
 			return
 		case <-time.After(sleepDuration): // Wait for the calculated sleep duration
-			sendDanmaku(c, roomID)
+			// sendDanmaku(c, roomID)
+			sendLike(c, roomID)
 		}
 	}
 	// Start Write Loop (Send Danmaku periodically)
@@ -293,4 +294,27 @@ func sendDanmaku(c *websocket.Conn, roomID string) {
 
 	atomic.AddInt64(&msgSentCount, 1)
 	atomic.AddInt64(&expectedRecvCount, atomic.LoadInt64(&connectedCount))
+}
+
+func sendLike(c *websocket.Conn, roomID string) {
+	count := rand.Intn(20) + 1
+
+	msgContent := model.Like{
+		Count: uint64(count),
+	}
+	dataBytes, _ := json.Marshal(msgContent)
+
+	packet := model.WsPacket{
+		Type:   model.ActionLike,
+		RoomID: roomID,
+		Data:   dataBytes,
+	}
+
+	if err := c.WriteJSON(packet); err != nil {
+		atomic.AddInt64(&errorCount, 1)
+		logger.Log.Warn("[BENCHMARK] Failed to send like", zap.Error(err))
+		return
+	}
+
+	atomic.AddInt64(&msgSentCount, 1)
 }

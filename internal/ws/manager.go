@@ -334,6 +334,7 @@ func (m *Manager) broadcastStats() {
 		}
 		logger.Log.Info("[MANAGER] Room Stats",
 			zap.String("roomID", roomID),
+			zap.Uint64("likes", totalLikes),
 			zap.Uint64("online", totalOnline),
 		)
 		dataBytes, _ := json.Marshal(stats)
