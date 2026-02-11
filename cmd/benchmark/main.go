@@ -115,8 +115,12 @@ func monitor() {
 
 	//every second
 	var lastSent, lastRecv int64
-	//periodic
-	var startExp, startRecv int64
+	var (
+		winStartSent int64
+		winStartRecv int64
+		winStartExp  int64
+		winStartErr  int64
+	)
 	secondsCounter := 0
 	for range ticker.C {
 		currConn := atomic.LoadInt64(&connectedCount)
@@ -126,12 +130,12 @@ func monitor() {
 		currErr := atomic.LoadInt64(&errorCount)
 
 		// Calculate QPS (Queries Per Second)
-		sentRate := currSent - lastSent
-		recvRate := currRecv - lastRecv
+		sentRate := currSent - lastSent // Messages sent per second
+		recvRate := currRecv - lastRecv // Messages received per second
 		lastSent, lastRecv = currSent, currRecv
 
-		lag := currExp - currRecv
-		var totalLossRate float64
+		lag := currExp - currRecv // Current total outstanding messages (Expected - Received)
+		var totalLossRate float64 // Cumulative loss rate since benchmark start
 		if currExp > 0 {
 			totalLossRate = float64(currExp-currRecv) / float64(currExp) * 100
 		}
@@ -140,26 +144,41 @@ func monitor() {
 			zap.Int64("Conns", currConn),
 			zap.Int64("Sent/s", sentRate),
 			zap.Int64("Recv/s", recvRate),
-			zap.Int64("InFlight/Lag", lag),
+			zap.Int64("CurrentLag", lag), // "In-flight" or "backlog" messages
 			zap.Int64("Errs", currErr),
-			zap.Float64("TotalLoss%", totalLossRate),
+			zap.String("TotalLoss%", fmt.Sprintf("%.2f%%", totalLossRate)),
 		)
 
 		secondsCounter++
 		if secondsCounter >= int(ReportInterval.Seconds()) {
-			// Calculate totals for the long window
-			intervalExp := currExp - startExp
-			intervalRecv := currRecv - startRecv
-			var intervalLoss float64
-			if intervalExp > 0 {
-				intervalLoss = float64(intervalExp-intervalRecv) / float64(intervalExp) * 100
+			// Calculate deltas for the current reporting window
+			winSent := currSent - winStartSent // Source messages sent in this window
+			winExp := currExp - winStartExp    // Theoretical total messages expected in this window
+			winRecv := currRecv - winStartRecv // Actual total messages received in this window
+			winErr := currErr - winStartErr    // Errors occurred in this window
+			// Net loss/gain in messages for this window
+			// A negative value means more messages were received than expected in this window (catching up on lag)
+			winNetLoss := winExp - winRecv
+			var winLossRate float64 // Loss rate specific to this window
+			if winExp > 0 {
+				winLossRate = float64(winNetLoss) / float64(winExp) * 100
 			}
+			// Average received QPS for this window
+			duration := float64(secondsCounter) // The actual duration of this window in seconds
+			avgRecvQPS := float64(winRecv) / duration
 
 			logger.Log.Info("[PERIODIC REPORT]",
-				zap.Float64("IntervalLoss%", intervalLoss),
-				zap.Int64("IntervalRecv", intervalRecv),
+				zap.Int64("Win_SourceSent", winSent),     // Source messages sent by bots
+				zap.Int64("Win_Expected", winExp),        // Theoretical total fan-out messages
+				zap.Int64("Win_ActualReceived", winRecv), // Total messages received by all bots
+				zap.Int64("Win_NetLoss", winNetLoss),     // Net loss in this window (can be negative if catching up)
+				zap.String("Win_LossRate", fmt.Sprintf("%.2f%%", winLossRate)),
+				zap.Int64("Win_AvgRecvQPS", int64(avgRecvQPS)),
+				zap.Int64("Win_Errors", winErr),
+				zap.Int64("CurrentLag", lag), // Snapshot of current backlog/in-flight messages
 			)
-			startExp, startRecv = currExp, currRecv
+			// Reset window start values for the next period
+			winStartSent, winStartRecv, winStartExp, winStartErr = currSent, currRecv, currExp, currErr
 			secondsCounter = 0
 		}
 	}
@@ -234,12 +253,14 @@ func runBot(host string, id int, interval time.Duration) {
 	defer ticker.Stop()
 
 	for {
+		// Calculate a sleep duration centered around 'interval' with jitter
+		// Factor (0.5 + rand.Float64()) gives a range of 0.5 to 1.5, averaging 1.0.
+		// So, the average send interval will be 'interval'.
+		sleepDuration := time.Duration(float64(interval) * (0.5 + rand.Float64()))
 		select {
 		case <-done:
 			return
-		case <-ticker.C:
-			jitter := 0.5 + rand.Float64() // 0.5 ~ 1.5
-			time.Sleep(time.Duration(float64(interval) * jitter))
+		case <-time.After(sleepDuration): // Wait for the calculated sleep duration
 			sendDanmaku(c, roomID)
 		}
 	}
