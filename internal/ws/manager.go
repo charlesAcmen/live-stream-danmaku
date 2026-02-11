@@ -254,7 +254,8 @@ func (m *Manager) handleBroadcast(packet *model.WsPacket) {
 	// Send to Redis (real-time).
 	// Skip Kafka (usually likes are just counters, detailed logs might not be needed).
 	case model.ActionLike:
-		m.processLike(packet)
+	// that is not gonna happen cause like packet will not be sent in broadcast channel
+	// m.processLike(packet)
 	// Case A: Stats (Generated locally, sent locally)
 	// Do NOT send to Redis (avoids broadcast storm).
 	// Do NOT send to Kafka (no need to save transient stats).
@@ -281,15 +282,15 @@ func (m *Manager) processDanmaku(roomID string, data []byte) {
 // processLike handles user likes.
 // Strategy: Update State (Redis KV). Do NOT broadcast every single like to save bandwidth.
 // The Ticker will pick up the new count later.
-func (m *Manager) processLike(packet *model.WsPacket) {
-	// 1. Business Logic: Increment Redis Counter
-	// We need to peek inside the Data to know the "Count"
-	var cmd model.Like
-	if err := json.Unmarshal(packet.Data, &cmd); err == nil {
-		// Only update the counter in Redis.
-		go infra.IncrRoomLikes(m.RedisClient, packet.RoomID, cmd.Count)
-	}
-}
+// func (m *Manager) processLike(packet *model.WsPacket) {
+// 	// 1. Business Logic: Increment Redis Counter
+// 	// We need to peek inside the Data to know the "Count"
+// 	var cmd model.Like
+// 	if err := json.Unmarshal(packet.Data, &cmd); err == nil {
+// 		// Only update the counter in Redis.
+// 		go infra.IncrRoomLikes(m.RedisClient, packet.RoomID, cmd.Count)
+// 	}
+// }
 
 // broadcastStats fetches stats for ALL active rooms and sends updates locally.
 func (m *Manager) broadcastStats() {
