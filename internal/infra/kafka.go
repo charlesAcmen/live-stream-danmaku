@@ -33,7 +33,9 @@ func InitKafkaProducer(brokers []string) sarama.AsyncProducer {
 	// Sarama will wait up to 10ms or until batch size is reached.
 	// This reduces the number of requests sent to the broker.
 	// This prevents sending too many tiny packets.
-	config.Producer.Flush.Messages = 500
+
+	//(Producer.Flush.MaxMessages must be >= Producer.Flush.Messages when set)
+	config.Producer.Flush.Messages = 50
 	config.Producer.Flush.MaxMessages = 200
 	config.Producer.Flush.Frequency = 50 * time.Millisecond
 	config.Producer.Flush.Bytes = 8 * 1024 // 8KB
