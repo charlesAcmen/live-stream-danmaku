@@ -67,7 +67,6 @@ func main() {
 		zap.Duration("avg_interval", *rate),          // Base interval before jitter
 		zap.Int("room_cap", RoomCapacity),            // Users per room
 		zap.Duration("report_interval", ReportInterval),
-		zap.Float64("churn_rate", ChurnRate),
 		zap.Strings("target_servers", targetHosts),
 	)
 
@@ -109,31 +108,71 @@ func main() {
 
 // monitor prints the system throughput every second.
 func monitor() {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	go func(){
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
 
-	var lastSent, lastRecv int64
+		var lastSent, lastRecv int64
+		for range ticker.C {
+			currConn := atomic.LoadInt64(&connectedCount)
+			currSent := atomic.LoadInt64(&msgSentCount)
+			currRecv := atomic.LoadInt64(&msgRecvCount)
+			currErr := atomic.LoadInt64(&errorCount)
 
-	for range ticker.C {
-		currConn := atomic.LoadInt64(&connectedCount)
-		currSent := atomic.LoadInt64(&msgSentCount)
-		currRecv := atomic.LoadInt64(&msgRecvCount)
-		currErr := atomic.LoadInt64(&errorCount)
+			// Calculate QPS (Queries Per Second)
+			sentRate := currSent - lastSent
+			recvRate := currRecv - lastRecv
 
-		// Calculate QPS (Queries Per Second)
-		sentRate := currSent - lastSent
-		recvRate := currRecv - lastRecv
+			lastSent = currSent
+			lastRecv = currRecv
 
-		lastSent = currSent
-		lastRecv = currRecv
+			loss := sentRate*currConn - recvRate
 
-		logger.Log.Info("[STATS]",
-			zap.Int64("Conns", currConn),
-			zap.Int64("Sent/s", sentRate),
-			zap.Int64("Recv/s", recvRate),
-			zap.Int64("Errs", currErr),
-		)
-	}
+			logger.Log.Info("[STATS]",
+				zap.Int64("Conns", currConn),
+				zap.Int64("Sent/s", sentRate),
+				zap.Int64("Recv/s", recvRate),
+				zap.Int64("Errs", currErr),
+				zap.Int64("Loss", loss),
+			)
+		}
+	}()
+
+
+
+	go func(){
+		ticker := time.NewTicker(ReportInterval)
+		defer ticker.Stop()
+
+		var lastSent, lastRecv, lastExpected int64
+
+		for range ticker.C {
+			currSent := atomic.LoadInt64(&msgSentCount)
+			currRecv := atomic.LoadInt64(&msgRecvCount)
+			currExp := atomic.LoadInt64(&expectedRecvCount)
+
+			// Calculate totals for the 10-second window
+			winSent := currSent - lastSent
+			winRecv := currRecv - lastRecv
+			winExp := currExp - lastExpected
+
+			var lossRate float64
+			if winExp > 0 {
+				lossRate = float64(winExp-winRecv) / float64(winExp) * 100
+				if lossRate < 0 { lossRate = 0 }
+			}
+
+			logger.Log.Info("[PERIODIC REPORT]",
+				zap.Duration("Interval", ReportInterval),
+				zap.Int64("WinSent", winSent),
+				zap.Int64("WinRecv", winRecv),
+				zap.Int64("WinLoss", winExp-winRecv),
+				zap.Float64("LossRate%", lossRate),
+			)
+
+			lastSent, lastRecv, lastExpected = currSent, currRecv, currExp
+		}
+	}()
 }
 
 // runBot simulates a single user behavior.
@@ -218,4 +257,5 @@ func sendDanmaku(c *websocket.Conn, roomID string) {
 	}
 
 	atomic.AddInt64(&msgSentCount, 1)
+	atomic.AddInt64(&expectedRecvCount, atomic.LoadInt64(&connectedCount))
 }
