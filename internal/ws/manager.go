@@ -213,11 +213,11 @@ func (m *Manager) handleUnregister(client *Client) {
 			// Do NOT close(client.Send) here if workers are still using it.
 			// close(client.Send)
 			client.Close()
-			logger.Log.Info(
-				"[MANAGER] Client disconnected",
-				zap.Uint64("userID", client.UserID),
-				zap.Int("total", len(clients)),
-			)
+			// logger.Log.Info(
+			// 	"[MANAGER] Client disconnected",
+			// 	zap.Uint64("userID", client.UserID),
+			// 	zap.Int("total", len(clients)),
+			// )
 			// Clean up room and STOP subscription if last client leaves
 			if len(clients) == 0 {
 				delete(m.Rooms, client.RoomID)

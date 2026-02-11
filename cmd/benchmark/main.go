@@ -35,15 +35,15 @@ var (
 // The benchmark tool will distribute connections evenly among these hosts.
 var targetHosts = []string{
 	"localhost:8081",
-	"localhost:8082",
+	// "localhost:8082",
 	// "localhost:8083",
 	// "localhost:8084",
 }
 
 const (
-	TotalClients       = 1                    // Total concurrent connections
+	TotalClients       = 100                  // Total concurrent connections
 	ActiveUserRatio    = 1                    // users are "talkers", are "lurkers" (listeners)
-	AvgMessageInterval = 1 * time.Second      // On average, a talker sends a message every 10 seconds
+	AvgMessageInterval = 5 * time.Second      // On average, a talker sends a message every 10 seconds
 	RoomCapacity       = 100000               // Max users per room (to simulate multiple rooms)
 	RampUpSpeed        = 2 * time.Millisecond // Connection speed limit
 
