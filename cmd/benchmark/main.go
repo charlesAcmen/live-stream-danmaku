@@ -24,10 +24,11 @@ import (
 
 // Metrics (Atomic counters for thread-safety)
 var (
-	connectedCount int64 // Total currently connected clients
-	msgSentCount   int64 // Total messages sent (Cumulative)
-	msgRecvCount   int64 // Total messages received (Cumulative)
-	errorCount     int64 // Total errors occurred
+	connectedCount    int64 // Total currently connected clients
+	msgSentCount      int64 // Total messages sent (Cumulative)
+	msgRecvCount      int64 // Total messages received (Cumulative)
+	errorCount        int64 // Total errors occurred
+	expectedRecvCount int64 // Sum of (1 sent * room_size) at the moment of sending
 )
 
 // Target servers to simulate client-side load balancing.
@@ -41,10 +42,12 @@ var targetHosts = []string{
 
 const (
 	TotalClients       = 15000                // Total concurrent connections
-	ActiveUserRatio    = 1.0                  // users are "talkers", are "lurkers" (listeners)
+	ActiveUserRatio    = 0.05                 // users are "talkers", are "lurkers" (listeners)
 	AvgMessageInterval = 1 * time.Second      // On average, a talker sends a message every 10 seconds
 	RoomCapacity       = 100000               // Max users per room (to simulate multiple rooms)
-	RampUpSpeed        = 1 * time.Millisecond // Connection speed limit
+	RampUpSpeed        = 2 * time.Millisecond // Connection speed limit
+
+	ReportInterval = 10 * time.Second // Period for long-term stats
 )
 
 func main() {
@@ -63,6 +66,8 @@ func main() {
 		zap.Float64("active_ratio", ActiveUserRatio), // Percentage of users who actually speak
 		zap.Duration("avg_interval", *rate),          // Base interval before jitter
 		zap.Int("room_cap", RoomCapacity),            // Users per room
+		zap.Duration("report_interval", ReportInterval),
+		zap.Float64("churn_rate", ChurnRate),
 		zap.Strings("target_servers", targetHosts),
 	)
 
@@ -75,13 +80,11 @@ func main() {
 	wg.Add(*clients)
 
 	// Control the startup rate to avoid "connection refused" or OS limits
-	// Start 500 clients per second
-	rampUpTicker := time.NewTicker(1 * time.Millisecond)
+	rampUpTicker := time.NewTicker(RampUpSpeed)
 	defer rampUpTicker.Stop()
 
 	for i := 0; i < *clients; i++ {
 		<-rampUpTicker.C // Wait a bit before starting next client
-
 		go func(id int) {
 			//decr counter by 1
 			defer wg.Done()
