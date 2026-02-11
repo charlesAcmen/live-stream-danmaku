@@ -298,13 +298,18 @@ func (m *Manager) broadcastStats() {
 	}
 
 	m.mu.RUnlock()
+
+	// Decoupling: Calculate TTL here, not in infra
+	// 3s interval -> 7s TTL (Interval * 2 + 1s)
+	reportTTL := BroadCastInterVal*2 + time.Second
+
 	for roomID, count := range localStats {
 		// online, likes := infra.GetRoomStats(m.RedisClient, roomID)
 
 		// STEP A: Report "I am alive and I have X users" to Redis
 		// This overwrites any previous value for this server.
 		// If this server crashes, this key will expire in 5 seconds.
-		infra.UpdateServerOnline(m.RedisClient, roomID, m.ServerID, count)
+		infra.UpdateServerOnline(m.RedisClient, roomID, m.ServerID, count, reportTTL)
 		// STEP B: Fetch the global total (Sum of all servers)
 		// We ignore likes for now as requested.
 		totalOnline := infra.GetTotalOnline(m.RedisClient, roomID)
