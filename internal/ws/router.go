@@ -71,26 +71,27 @@ func RegisterActionHandlers() {
 		}
 
 		m.likesMu.Lock()
-        m.localLikes[c.RoomID] += likes.Count
-        m.likesMu.Unlock()
+		m.localLikes[c.RoomID] += likes.Count
+		m.likesMu.Unlock()
 
-		// B. Wrap in WsPacket (Envelope)
-		// We re-marshal the likes to ensure format consistency
-		dataBytes, _ := json.Marshal(likes)
-
-		outgoingPacket := model.WsPacket{
-			Type:   model.ActionLike,
-			RoomID: c.RoomID,
-			Data:   dataBytes,
-		}
-
-		// C. Send to Manager (Handover responsibility)
-		m.Broadcast <- &outgoingPacket
-
-		logger.Log.Debug("[SERVER HANDLER] Like packet forwarded to manager",
+		logger.Log.Info("[SERVER HANDLER] Like packet forwarded to manager",
 			zap.Uint64("uid", c.UserID),
 			zap.String("room", c.RoomID),
 		)
+
+		// B. Wrap in WsPacket (Envelope)
+		// We re-marshal the likes to ensure format consistency
+		// dataBytes, _ := json.Marshal(likes)
+
+		// outgoingPacket := model.WsPacket{
+		// 	Type:   model.ActionLike,
+		// 	RoomID: c.RoomID,
+		// 	Data:   dataBytes,
+		// }
+
+		// // C. Send to Manager (Handover responsibility)
+		// m.Broadcast <- &outgoingPacket
+
 	})
 	logger.Log.Info("[SERVER HANDLER]Registered Handler: Like/Action")
 }
