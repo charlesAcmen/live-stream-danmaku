@@ -42,7 +42,7 @@ var targetHosts = []string{
 
 const (
 	TotalClients       = 15000                // Total concurrent connections
-	ActiveUserRatio    = 0.05                 // users are "talkers", are "lurkers" (listeners)
+	ActiveUserRatio    = 0.003                // users are "talkers", are "lurkers" (listeners)
 	AvgMessageInterval = 1 * time.Second      // On average, a talker sends a message every 10 seconds
 	RoomCapacity       = 100000               // Max users per room (to simulate multiple rooms)
 	RampUpSpeed        = 2 * time.Millisecond // Connection speed limit
@@ -206,15 +206,23 @@ func runBot(host string, id int, interval time.Duration) {
 	// 3. Start Read Loop (Consume and discard messages to keep connection alive)
 	go func() {
 		for {
-			_, _, err := c.ReadMessage()
+			_, message, err := c.ReadMessage()
 			if err != nil {
 				atomic.AddInt64(&errorCount, 1)
 				logger.Log.Warn("[BENCHMARK] Read loop exited due to error",
 					zap.Int("bot_id", id),
 					zap.Error(err))
+				c.Close()
 				return
 			}
-			atomic.AddInt64(&msgRecvCount, 1)
+			var packet model.WsPacket
+			if err := json.Unmarshal(message, &packet); err == nil {
+				if packet.Type == model.TypeDanmaku {
+					//more accurate loss calculation
+					atomic.AddInt64(&msgRecvCount, 1)
+				}
+			}
+			// atomic.AddInt64(&msgRecvCount, 1)
 		}
 	}()
 

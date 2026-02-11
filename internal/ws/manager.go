@@ -367,14 +367,14 @@ func (m *Manager) subscribeToRoom(ctx context.Context, roomID string) {
 			// )
 			return
 		// Loop over messages received from Redis.
-		case _, ok := <-ch:
-			// case msg, ok := <-ch:
+		// case _, ok := <-ch:
+		case msg, ok := <-ch:
 			if !ok {
 				return
 			}
 			// msg.Payload is the JSON string
 			// Now we broadcast this message to all local clients in this room.
-			// m.broadcastToLocalClients(roomID, []byte(msg.Payload))
+			m.broadcastToLocalClients(roomID, []byte(msg.Payload))
 		}
 	}
 }
