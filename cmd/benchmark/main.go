@@ -108,7 +108,7 @@ func main() {
 
 // monitor prints the system throughput every second.
 func monitor() {
-	go func(){
+	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
@@ -138,9 +138,8 @@ func monitor() {
 		}
 	}()
 
-
-
-	go func(){
+	go func() {
+		logger.Log.Info("[BENCHMARK] The following periodic statistics are accurate only when running with a single room.")
 		ticker := time.NewTicker(ReportInterval)
 		defer ticker.Stop()
 
@@ -159,7 +158,9 @@ func monitor() {
 			var lossRate float64
 			if winExp > 0 {
 				lossRate = float64(winExp-winRecv) / float64(winExp) * 100
-				if lossRate < 0 { lossRate = 0 }
+				if lossRate < 0 {
+					lossRate = 0
+				}
 			}
 
 			logger.Log.Info("[PERIODIC REPORT]",
