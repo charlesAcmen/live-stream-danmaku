@@ -114,9 +114,9 @@ func monitor() {
 	defer ticker.Stop()
 
 	//every second
-	var lastSent, lastRecv, lastExpected int64
+	var lastSent, lastRecv int64
 	//periodic
-	var winStartSent, winStartRecv, winStartExp int64
+	var startExp, startRecv int64
 	secondsCounter := 0
 	for range ticker.C {
 		currConn := atomic.LoadInt64(&connectedCount)
@@ -128,38 +128,38 @@ func monitor() {
 		// Calculate QPS (Queries Per Second)
 		sentRate := currSent - lastSent
 		recvRate := currRecv - lastRecv
+		lastSent, lastRecv = currSent, currRecv
 
-		expDelta := currExp - lastExpected
-		loss := expDelta - recvRate
-
-		lastSent, lastRecv, lastExpected = currSent, currRecv, currExp
+		lag := currExp - currRecv
+		var totalLossRate float64
+		if currExp > 0 {
+			totalLossRate = float64(currExp-currRecv) / float64(currExp) * 100
+		}
 
 		logger.Log.Info("[STATS]",
 			zap.Int64("Conns", currConn),
 			zap.Int64("Sent/s", sentRate),
 			zap.Int64("Recv/s", recvRate),
+			zap.Int64("InFlight/Lag", lag),
 			zap.Int64("Errs", currErr),
-			zap.Int64("Loss", loss),
+			zap.Float64("TotalLoss%", totalLossRate),
 		)
 
 		secondsCounter++
-		if secondsCounter >= int(ReportInterval) {
+		if secondsCounter >= int(ReportInterval.Seconds()) {
 			// Calculate totals for the long window
-			winSent := currSent - winStartSent
-			winRecv := currRecv - winStartRecv
-			winExp := currExp - winStartExp
-			var lossRate float64
-			if winExp > 0 {
-				lossRate = float64(winExp-winRecv) / float64(winExp) * 100
+			intervalExp := currExp - startExp
+			intervalRecv := currRecv - startRecv
+			var intervalLoss float64
+			if intervalExp > 0 {
+				intervalLoss = float64(intervalExp-intervalRecv) / float64(intervalExp) * 100
 			}
 
 			logger.Log.Info("[PERIODIC REPORT]",
-				zap.Int64("WinSent", winSent),
-				zap.Int64("WinRecv", winRecv),
-				zap.Int64("WinLoss", winExp-winRecv),
-				zap.Float64("LossRate%", lossRate),
+				zap.Float64("IntervalLoss%", intervalLoss),
+				zap.Int64("IntervalRecv", intervalRecv),
 			)
-			winStartSent, winStartRecv, winStartExp = currSent, currRecv, currExp
+			startExp, startRecv = currExp, currRecv
 			secondsCounter = 0
 		}
 	}
@@ -185,14 +185,21 @@ func runBot(host string, id int, interval time.Duration) {
 		logger.Log.Error("Dial error", zap.Error(err)) // Too noisy for benchmark
 		return
 	}
-	defer c.Close()
 
 	// Update counter
 	atomic.AddInt64(&connectedCount, 1)
-	defer atomic.AddInt64(&connectedCount, -1)
+
+	defer func() {
+		c.Close()
+		atomic.AddInt64(&connectedCount, -1)
+	}()
+
+	//exit with channel assist
+	done := make(chan struct{})
 
 	// 3. Start Read Loop (Consume and discard messages to keep connection alive)
 	go func() {
+		defer close(done)
 		for {
 			_, message, err := c.ReadMessage()
 			if err != nil {
@@ -219,13 +226,22 @@ func runBot(host string, id int, interval time.Duration) {
 	isTalker := rand.Float64() < ActiveUserRatio
 	if !isTalker {
 		// Lurker: Just stay online and listen (the read loop handles it)
-		select {}
+		<-done
+		return
 	}
 	// Talker: Send messages with Jitter
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
 	for {
-		jitter := 0.5 + rand.Float64() // 0.5 ~ 1.5
-		time.Sleep(time.Duration(float64(interval) * jitter))
-		sendDanmaku(c, roomID)
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			jitter := 0.5 + rand.Float64() // 0.5 ~ 1.5
+			time.Sleep(time.Duration(float64(interval) * jitter))
+			sendDanmaku(c, roomID)
+		}
 	}
 	// Start Write Loop (Send Danmaku periodically)
 	// Add some jitter to avoid all bots sending at the exact same millisecond
