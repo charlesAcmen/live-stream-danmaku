@@ -19,6 +19,7 @@ const (
 	KeyRoomLikes        = "room:%s:likes"     // Counter for likes
 	KeyRoomOnline       = "room:%s:online:*"  // Counter for online users of a room
 	KeyRoomServerOnline = "room:%s:online:%s" // Counter for online users of a server
+	KeyServerOfRoom     = "room:%s:servers"   // server lists for a specific room
 	RedisCancelTimeout  = 2 * time.Second
 )
 
@@ -91,52 +92,88 @@ func IncrRoomLikes(rdb *redis.Client, roomID string, count uint64) {
 //
 // UpdateServerOnline sets the absolute count for a specific server instance with a short TTL.
 // This acts as a heartbeat. If the server crashes, this key will expire automatically.
-func UpdateServerOnline(rdb *redis.Client, roomID string, serverID string, count int) {
-	key := fmt.Sprintf(KeyRoomServerOnline, roomID, serverID)
+func UpdateServerOnline(rdb *redis.Client, roomID string, serverID string, count int, ttl time.Duration) {
+	ctx := context.Background()
+	countKey := fmt.Sprintf(KeyRoomServerOnline, roomID, serverID)
+	registryKey := fmt.Sprintf(KeyServerOfRoom, roomID)
+
+	// Use Pipeline to reduce network RTT
+	pipe := rdb.Pipeline()
+	// 1. Update the count with TTL
+	pipe.Set(ctx, countKey, count, ttl)
+	// 2. Add serverID to the registry set (no expiration for Set members)
+	pipe.SAdd(ctx, registryKey, serverID)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		logger.Log.Error("[REDIS INFRA] Failed to report server stats", zap.Error(err))
+	}
 
 	// SETEX: Set value and Expiration together (Atomic)
 	// We set TTL to 5 seconds. Since broadcastStats runs every 3 seconds,
 	// this key will be kept alive as long as the server is running.
-	err := rdb.Set(context.Background(), key, count, 5*time.Second).Err()
-	if err != nil {
-		logger.Log.Error("[REDIS] Failed to update server online count",
-			zap.String("room", roomID),
-			zap.Error(err))
-	}
+	// err := rdb.Set(context.Background(), key, count, 5*time.Second).Err()
+	// if err != nil {
+	// 	logger.Log.Error("[REDIS] Failed to update server online count",
+	// 		zap.String("room", roomID),
+	// 		zap.Error(err))
+	// }
 }
 
 // GetTotalOnline aggregates online counts from all active servers for a room.
 func GetTotalOnline(rdb *redis.Client, roomID string) uint64 {
 	ctx := context.Background()
+	registryKey := fmt.Sprintf(KeyServerOfRoom, roomID)
+	serverIDs, err := rdb.SMembers(ctx, registryKey).Result()
+	if err != nil || len(serverIDs) == 0 {
+		return 0
+	}
+
+	//Prepare keys for MGet
+	keys := make([]string, len(serverIDs))
+	for i, serverId := range serverIDs {
+		keys[i] = fmt.Sprintf(KeyRoomServerOnline, roomID, serverId)
+	}
+
 	// Match pattern: room:1001:online:*
 	// This finds keys from all servers currently reporting for this room.
-	pattern := fmt.Sprintf(KeyRoomOnline, roomID)
+	// pattern := fmt.Sprintf(KeyRoomOnline, roomID)
+
+	// MGet counts
+	values, err := rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		logger.Log.Error("[REDIS INFRA] Failed to scan online keys", zap.Error(err))
+		return 0
+	}
 
 	// 1. Find all keys matching the pattern
 	// In production with millions of keys, ensure your Redis structure prevents scanning too much.
 	// Since we scan specific room prefix, it only returns keys equal to Server Count (e.g., 2-10), which is fast.
-	keys, err := rdb.Keys(ctx, pattern).Result()
-	if err != nil {
-		logger.Log.Error("[REDIS] Failed to scan online keys", zap.Error(err))
-		return 0
-	}
+	// keys, err := rdb.Keys(ctx, pattern).Result()
+	// if err != nil {
+	// 	logger.Log.Error("[REDIS INFRA] Failed to scan online keys", zap.Error(err))
+	// 	return 0
+	// }
 
-	if len(keys) == 0 {
-		return 0
-	}
+	// if len(keys) == 0 {
+	// 	return 0
+	// }
 
 	// 2. Get values for all these keys
 	// MGet is more efficient than looping Get
-	values, err := rdb.MGet(ctx, keys...).Result()
-	if err != nil {
-		logger.Log.Error("[REDIS] Failed to mget online values", zap.Error(err))
-		return 0
-	}
+	// values, err := rdb.MGet(ctx, keys...).Result()
+	// if err != nil {
+	// 	logger.Log.Error("[REDIS] Failed to mget online values", zap.Error(err))
+	// 	return 0
+	// }
 
 	// 3. Sum them up
 	var total uint64 = 0
-	for _, val := range values {
+	for i, val := range values {
 		if val == nil {
+			// This server's key expired -> Server might have crashed
+			// Clean up the registry set asynchronously
+			go rdb.SRem(ctx, registryKey, serverIDs[i])
 			continue
 		}
 		// Redis returns values as string (or int depending on adapter), usually string in Go-Redis

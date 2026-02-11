@@ -34,16 +34,16 @@ var (
 // The benchmark tool will distribute connections evenly among these hosts.
 var targetHosts = []string{
 	"localhost:8081",
-	// "localhost:8082",
+	"localhost:8082",
 	// "localhost:8083",
 	// "localhost:8084",
 }
 
 const (
-	TotalClients       = 200                  // Total concurrent connections
+	TotalClients       = 15000                // Total concurrent connections
 	ActiveUserRatio    = 1.0                  // users are "talkers", are "lurkers" (listeners)
 	AvgMessageInterval = 1 * time.Second      // On average, a talker sends a message every 10 seconds
-	RoomCapacity       = 40000                // Max users per room (to simulate multiple rooms)
+	RoomCapacity       = 100000               // Max users per room (to simulate multiple rooms)
 	RampUpSpeed        = 1 * time.Millisecond // Connection speed limit
 )
 
@@ -150,7 +150,7 @@ func runBot(host string, id int, interval time.Duration) {
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		atomic.AddInt64(&errorCount, 1)
-		// logger.Log.Error("Dial error", zap.Error(err)) // Too noisy for benchmark
+		logger.Log.Error("Dial error", zap.Error(err)) // Too noisy for benchmark
 		return
 	}
 	defer c.Close()

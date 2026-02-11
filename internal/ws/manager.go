@@ -270,7 +270,7 @@ func (m *Manager) processDanmaku(roomID string, data []byte) {
 
 	// 2. Distribution (Redis Pub/Sub)
 	// This ensures clients on other servers also receive this danmaku.
-	go infra.PublishToRoom(m.RedisClient, roomID, data)
+	infra.PublishToRoom(m.RedisClient, roomID, data)
 }
 
 // processLike handles user likes.
@@ -362,13 +362,14 @@ func (m *Manager) subscribeToRoom(ctx context.Context, roomID string) {
 			// )
 			return
 		// Loop over messages received from Redis.
-		case msg, ok := <-ch:
+		case _, ok := <-ch:
+			// case msg, ok := <-ch:
 			if !ok {
 				return
 			}
 			// msg.Payload is the JSON string
 			// Now we broadcast this message to all local clients in this room.
-			m.broadcastToLocalClients(roomID, []byte(msg.Payload))
+			// m.broadcastToLocalClients(roomID, []byte(msg.Payload))
 		}
 	}
 }
