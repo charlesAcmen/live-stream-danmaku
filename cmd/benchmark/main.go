@@ -155,13 +155,14 @@ func monitor() {
 			winRecv := currRecv - lastRecv
 			winExp := currExp - lastExpected
 
-			var lossRate float64
-			if winExp > 0 {
-				lossRate = float64(winExp-winRecv) / float64(winExp) * 100
-				if lossRate < 0 {
-					lossRate = 0
-				}
-			}
+			// var lossRate float64
+			// if winExp > 0 {
+			// 	lossRate = float64(winExp-winRecv) / float64(winExp) * 100
+			// 	if lossRate < 0 {
+			// 		lossRate = 0
+			// 	}
+			// }
+			lossRate := float64(winExp-winRecv) / float64(winExp) * 100
 
 			logger.Log.Info("[PERIODIC REPORT]",
 				zap.Duration("Interval", ReportInterval),
