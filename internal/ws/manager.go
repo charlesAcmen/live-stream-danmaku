@@ -55,6 +55,10 @@ type Manager struct {
 	// Channel to distribute broadcast tasks to background workers
 	broadcastJobChan chan *BroadcastJob
 
+	// Map of RoomID -> Count of likes
+	localLikes map[string]uint64
+	likesMu    sync.Mutex
+
 	// RedisClient: the connection to the Redis server.
 	RedisClient *redis.Client
 
@@ -85,6 +89,7 @@ func NewManager() *Manager {
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
 		Broadcast:  make(chan *model.WsPacket, BroadcastChanSize), // Buffer to handle spikes
+		localLikes: make(map[string]uint64),
 		Rooms:      make(map[string]map[*Client]struct{}),
 		cancelSub:  make(map[string]context.CancelFunc),
 		clientPool: sync.Pool{

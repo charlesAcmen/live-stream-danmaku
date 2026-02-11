@@ -195,7 +195,7 @@ func GetRoomLikes(rdb *redis.Client, roomID string) uint64 {
 	key := fmt.Sprintf(KeyRoomLikes, roomID)
 
 	val, err := rdb.Get(ctx, key).Result()
-	if err != nil {
+	if err != nil {	
 		if err == redis.Nil {
 			return 0
 		}

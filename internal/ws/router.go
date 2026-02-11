@@ -65,6 +65,14 @@ func RegisterActionHandlers() {
 			// Default to 1 if payload is empty or invalid
 			likes.Count = 1
 		}
+		// defend from frontend
+		if likes.Count <= 0 {
+			likes.Count = 1
+		}
+
+		m.likesMu.Lock()
+        m.localLikes[c.RoomID] += likes.Count
+        m.likesMu.Unlock()
 
 		// B. Wrap in WsPacket (Envelope)
 		// We re-marshal the likes to ensure format consistency
