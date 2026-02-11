@@ -294,6 +294,12 @@ func (m *Manager) processLike(packet *model.WsPacket) {
 // broadcastStats fetches stats for ALL active rooms and sends updates locally.
 func (m *Manager) broadcastStats() {
 	// logger.Log.Info("[MANAGER]BroadcastStats called")
+
+	m.likesMu.Lock()
+	currentBatchLikes := m.localLikes
+	m.localLikes = make(map[string]uint64)
+	m.likesMu.Unlock()
+
 	// 1. Iterate over all active rooms on this server
 	// We need to fetch and broadcast stats for EACH room separately.
 	m.mu.RLock()
@@ -315,12 +321,16 @@ func (m *Manager) broadcastStats() {
 		// This overwrites any previous value for this server.
 		// If this server crashes, this key will expire in 5 seconds.
 		infra.UpdateServerOnline(m.RedisClient, roomID, m.ServerID, count, reportTTL)
+		if likesDelta, ok := currentBatchLikes[roomID]; ok && likesDelta > 0 {
+			go infra.IncrRoomLikes(m.RedisClient, roomID, likesDelta)
+		}
 		// STEP B: Fetch the global total (Sum of all servers)
 		// We ignore likes for now as requested.
 		totalOnline := infra.GetTotalOnline(m.RedisClient, roomID)
+		totalLikes := infra.GetRoomLikes(m.RedisClient, roomID)
 		stats := model.StatsData{
 			Online: totalOnline,
-			Likes:  0, // Placeholder as requested
+			Likes:  totalLikes,
 		}
 		logger.Log.Info("[MANAGER] Room Stats",
 			zap.String("roomID", roomID),
