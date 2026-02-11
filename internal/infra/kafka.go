@@ -34,9 +34,9 @@ func InitKafkaProducer(brokers []string) sarama.AsyncProducer {
 	// This reduces the number of requests sent to the broker.
 	// This prevents sending too many tiny packets.
 	config.Producer.Flush.Messages = 500
-	config.Producer.Flush.MaxMessages = 1000
-	config.Producer.Flush.Frequency = 500 * time.Millisecond
-	config.Producer.Flush.Bytes = 16 * 1024 // 16KB
+	config.Producer.Flush.MaxMessages = 200
+	config.Producer.Flush.Frequency = 50 * time.Millisecond
+	config.Producer.Flush.Bytes = 8 * 1024 // 8KB
 	// We need to return success info to avoid errors in SyncProducer.
 	// config.Producer.Return.Successes = true
 
