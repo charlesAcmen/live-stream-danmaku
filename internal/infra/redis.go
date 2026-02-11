@@ -122,7 +122,8 @@ func UpdateServerOnline(rdb *redis.Client, roomID string, serverID string, count
 
 // GetTotalOnline aggregates online counts from all active servers for a room.
 func GetTotalOnline(rdb *redis.Client, roomID string) uint64 {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
+	defer cancel()
 	registryKey := fmt.Sprintf(KeyServerOfRoom, roomID)
 	serverIDs, err := rdb.SMembers(ctx, registryKey).Result()
 	if err != nil || len(serverIDs) == 0 {
@@ -185,6 +186,25 @@ func GetTotalOnline(rdb *redis.Client, roomID string) uint64 {
 	}
 
 	return total
+}
+
+// GetRoomLikes gets the total likes.
+func GetRoomLikes(rdb *redis.Client, roomID string) uint64 {
+	ctx, cancel := context.WithTimeout(context.Background(), RedisCancelTimeout)
+	defer cancel()
+	key := fmt.Sprintf(KeyRoomLikes, roomID)
+
+	val, err := rdb.Get(ctx, key).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return 0
+		}
+		logger.Log.Error("[REDIS INFRA] Get likes failed", zap.Error(err))
+		return 0
+	}
+
+	count, _ := strconv.ParseUint(val, 10, 64)
+	return count
 }
 
 // GetRoomStats fetches Online count and Likes count in one go.

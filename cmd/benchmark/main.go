@@ -41,8 +41,8 @@ var targetHosts = []string{
 }
 
 const (
-	TotalClients       = 15000                // Total concurrent connections
-	ActiveUserRatio    = 0.003                // users are "talkers", are "lurkers" (listeners)
+	TotalClients       = 20000                // Total concurrent connections
+	ActiveUserRatio    = 0.0002               // users are "talkers", are "lurkers" (listeners)
 	AvgMessageInterval = 1 * time.Second      // On average, a talker sends a message every 10 seconds
 	RoomCapacity       = 100000               // Max users per room (to simulate multiple rooms)
 	RampUpSpeed        = 2 * time.Millisecond // Connection speed limit
@@ -168,10 +168,10 @@ func monitor() {
 			avgRecvQPS := float64(winRecv) / duration
 
 			logger.Log.Info("[PERIODIC REPORT]",
-				zap.Int64("Win_SourceSent", winSent),     // Source messages sent by bots
-				zap.Int64("Win_Expected", winExp),        // Theoretical total fan-out messages
-				zap.Int64("Win_ActualReceived", winRecv), // Total messages received by all bots
-				zap.Int64("Win_NetLoss", winNetLoss),     // Net loss in this window (can be negative if catching up)
+				zap.Int64("Win_Sent", winSent),       // Source messages sent by bots
+				zap.Int64("Win_Expected", winExp),    // Theoretical total fan-out messages
+				zap.Int64("Win_Received", winRecv),   // Total messages received by all bots
+				zap.Int64("Win_NetLoss", winNetLoss), // Net loss in this window (can be negative if catching up)
 				zap.String("Win_LossRate", fmt.Sprintf("%.2f%%", winLossRate)),
 				zap.Int64("Win_AvgRecvQPS", int64(avgRecvQPS)),
 				zap.Int64("Win_Errors", winErr),
