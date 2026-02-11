@@ -74,8 +74,9 @@ func RegisterActionHandlers() {
 		m.localLikes[c.RoomID] += likes.Count
 		m.likesMu.Unlock()
 
-		logger.Log.Info("[SERVER HANDLER] Like packet forwarded to manager",
+		logger.Log.Info("[SERVER HANDLER] Liked",
 			zap.Uint64("uid", c.UserID),
+			zap.Uint64("count", likes.Count),
 			zap.String("room", c.RoomID),
 		)
 
