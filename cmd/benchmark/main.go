@@ -35,17 +35,17 @@ var (
 // The benchmark tool will distribute connections evenly among these hosts.
 var targetHosts = []string{
 	"localhost:8081",
-	// "localhost:8082",
+	"localhost:8082",
 	// "localhost:8083",
 	// "localhost:8084",
 }
 
 const (
-	TotalClients       = 100                  // Total concurrent connections
-	ActiveUserRatio    = 1                    // users are "talkers", are "lurkers" (listeners)
-	AvgMessageInterval = 5 * time.Second      // On average, a talker sends a message every 10 seconds
+	TotalClients       = 30000                // Total concurrent connections
+	ActiveUserRatio    = 0.001                // users are "talkers", are "lurkers" (listeners)
+	AvgMessageInterval = 1 * time.Second      // On average, a talker sends a message every 10 seconds
 	RoomCapacity       = 100000               // Max users per room (to simulate multiple rooms)
-	RampUpSpeed        = 2 * time.Millisecond // Connection speed limit
+	RampUpSpeed        = 1 * time.Millisecond // Connection speed limit
 
 	ReportInterval = 10 * time.Second // Period for long-term stats
 )
@@ -249,8 +249,8 @@ func runBot(host string, id int, interval time.Duration) {
 		return
 	}
 	// Talker: Send messages with Jitter
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	// ticker := time.NewTicker(interval)
+	// defer ticker.Stop()
 
 	for {
 		// Calculate a sleep duration centered around 'interval' with jitter
@@ -261,8 +261,8 @@ func runBot(host string, id int, interval time.Duration) {
 		case <-done:
 			return
 		case <-time.After(sleepDuration): // Wait for the calculated sleep duration
-			// sendDanmaku(c, roomID)
-			sendLike(c, roomID)
+			sendDanmaku(c, roomID)
+			// sendLike(c, roomID)
 		}
 	}
 	// Start Write Loop (Send Danmaku periodically)
@@ -270,11 +270,14 @@ func runBot(host string, id int, interval time.Duration) {
 	// time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
 }
 
+var globalMsgSeq int64
+
 // sendDanmaku constructs a valid WsPacket and sends it.
 func sendDanmaku(c *websocket.Conn, roomID string) {
 	// 1. Create the Payload (The content)
+	seqID := atomic.AddInt64(&globalMsgSeq, 1)
 	msgContent := model.DanmakuMessage{
-		Content: fmt.Sprintf("bench-msg-%d", rand.Intn(1000)),
+		Content: fmt.Sprintf("bench-msg-%d", seqID),
 	}
 	dataBytes, _ := json.Marshal(msgContent)
 
